@@ -1,0 +1,30 @@
+import { Global, ScreenId, Backend } from "../../common.slint";
+import { ScreenBase } from "../../components/screen.slint";
+import { TextListView } from "../../components/list_view.slint";
+import { ControlHint } from "../../components/control_hint.slint";
+import { CoreList } from "core_list.slint";
+
+export component CoresScreen inherits ScreenBase {
+    // TODO dynamic
+    in property <[string]> cores: [
+        "Game Boy / Game Boy Color",
+        "Game Boy Advance",
+    ];
+
+    title: "Cores";
+    forward-focus: i-core-list;
+
+    i-core-list := CoreList {
+        cores: cores;
+
+        width: 100%;
+        height: 100%;
+
+        on-cancel => {
+            Global.set-screen(ScreenId.MainMenu);
+        }
+        on-core-selected => {
+            // TODO
+        }
+    }
+}
