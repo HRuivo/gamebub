@@ -4,14 +4,21 @@ import { TextListView } from "../../components/list_view.slint";
 import { ControlHint } from "../../components/control_hint.slint";
 import { CoreList } from "core_list.slint";
 import { CoreDetails } from "core_detail.slint";
+import { CoreListInfo } from "types.slint";
 
 export component CoresScreen inherits ScreenBase {
     title: "Cores";
 
     // TODO dynamic
-    in property <[string]> cores: [
-        "Game Boy / Game Boy Color",
-        "Game Boy Advance",
+    in property <[CoreListInfo]> cores: [
+        {
+            core-name: "Game Boy / Game Boy Color",
+            core-author: "Game Bub",
+        },
+        {
+            core-name: "Game Boy Advance",
+            core-author: "Game Bub",
+        },
     ];
     private property <int> selected-core: -1;
 
@@ -45,8 +52,8 @@ export component CoresScreen inherits ScreenBase {
             self.focus();
         }
 
-        core-name: "Game Boy Advance";
-        core-author: "Game Bub";
+        core-name: cores[selected-core].core-name;
+        core-author: cores[selected-core].core-author;
 
         on-cancel => {
             selected-core = -1;
