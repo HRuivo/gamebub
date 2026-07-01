@@ -5,6 +5,7 @@ use std::path::{Path, PathBuf};
 use std::sync::{mpsc, OnceLock};
 
 use crate::bitstream::CurrentBitstream;
+use crate::core::CoreManager;
 use crate::device::drivers::fpga;
 use crate::device::Device;
 use crate::device::DisplayMode;
@@ -40,6 +41,9 @@ pub enum Message {
     EnsureBootBitstream,
     /// The idle timer has expired
     IdleTimerExpired,
+
+    /// Start running a core (ID)
+    RunCore(String),
 }
 
 /// Send a message to the worker threads.
@@ -195,6 +199,9 @@ fn dispatch(message: Message) {
                 Device::lock().power_off();
             }
             // TODO: Dim the screen temporarily.
+        }
+        Message::RunCore(id) => {
+            CoreManager::lock().run_core(&id);
         }
         #[allow(unreachable_patterns)]
         _ => {

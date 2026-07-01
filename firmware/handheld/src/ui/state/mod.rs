@@ -15,6 +15,7 @@ use super::slint::{
     Backend, MainWindow, ScreenId, SettingDatetime, SettingEntry, SettingType, SettingValue,
 };
 
+mod cores;
 mod game;
 mod main_menu;
 pub mod notifications;
@@ -84,6 +85,7 @@ impl UiState {
         self.setup_tools(&state, device);
         self.setup_rom_select(&state, device);
         self.setup_settings(&state, device);
+        self.setup_cores(&state, device);
 
         // Check for first boot
         if kvs::keys::SETUP_STAGE.get().unwrap_or_default() == 0 {

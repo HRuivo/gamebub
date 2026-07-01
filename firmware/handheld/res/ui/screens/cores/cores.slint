@@ -12,10 +12,12 @@ export component CoresScreen inherits ScreenBase {
     // TODO dynamic
     in property <[CoreListInfo]> cores: [
         {
+            core-id: "Game-Bub.GB",
             core-name: "Game Boy / Game Boy Color",
             core-author: "Game Bub",
         },
         {
+            core-id: "Game-Bub.GBA",
             core-name: "Game Boy Advance",
             core-author: "Game Bub",
         },
@@ -58,5 +60,11 @@ export component CoresScreen inherits ScreenBase {
         on-cancel => {
             selected-core = -1;
         }
+        on-run => {
+            Backend.core-run(cores[selected-core].core-id);
+        }
     }
+
+    // TODO file select
+    // TODO update title, "Select '{...}'"
 }

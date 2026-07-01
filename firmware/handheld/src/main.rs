@@ -10,6 +10,7 @@ use crate::{
 mod bitstream;
 mod cart_backup;
 mod control;
+mod core;
 mod crash_handler;
 mod device;
 mod fwinfo;

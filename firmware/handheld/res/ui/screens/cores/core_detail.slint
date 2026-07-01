@@ -5,6 +5,7 @@ export component CoreDetails {
     in property <string> core-author;
 
     callback on-cancel();
+    callback on-run();
 
     forward-focus: btn-core-run;
 
@@ -56,6 +57,9 @@ export component CoreDetails {
                 on-down => {
                     btn-back.focus();
                     accept
+                }
+                on-pressed => {
+                    on-run();
                 }
             }
 
