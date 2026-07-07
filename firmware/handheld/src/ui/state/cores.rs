@@ -48,7 +48,6 @@ impl UiState {
             state.cores_handle_file_select_selected(PathBuf::new(), "..");
         });
 
-        let state_ = state.clone();
         backend.on_core_file_select_cancel(move || {
             worker::send(worker::Message::CoreFileCancelled);
         });

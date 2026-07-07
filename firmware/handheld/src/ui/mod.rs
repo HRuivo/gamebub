@@ -287,6 +287,9 @@ impl UI {
             Message::RomLoadingProgress(progress) => {
                 self.root
                     .global::<slint::Backend>()
+                    .set_rom_select_is_loading(true);
+                self.root
+                    .global::<slint::Backend>()
                     .set_rom_select_progress(progress * 100.0);
             }
             Message::RomSelectFiles(files) => {
