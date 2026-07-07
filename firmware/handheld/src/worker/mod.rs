@@ -46,6 +46,8 @@ pub enum Message {
     RunCore(String),
     /// A file was selected for the core (could be a directory).
     CoreFileSelected(PathBuf),
+    /// Core file selection was cancelled.
+    CoreFileCancelled,
 }
 
 /// Send a message to the worker threads.
@@ -207,6 +209,9 @@ fn dispatch(message: Message) {
         }
         Message::CoreFileSelected(file) => {
             CoreManager::lock().handle_file_selected(file);
+        }
+        Message::CoreFileCancelled => {
+            CoreManager::lock().cancel_file_select();
         }
         #[allow(unreachable_patterns)]
         _ => {

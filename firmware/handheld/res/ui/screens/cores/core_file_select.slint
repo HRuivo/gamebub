@@ -5,6 +5,8 @@ import { ControlHint } from "../../components/control_hint.slint";
 export component CoreFileSelect {
     private property <bool> has-error: Backend.core-file-select-error != "";
 
+    callback on-cancel();
+
     forward-focus: list;
 
     // TODO: correctly label new item when the list changes
@@ -26,7 +28,7 @@ export component CoreFileSelect {
                 }
                 accept
             } else if (event.text == "b" && !event.repeat) {
-                // TODO: go back
+                on-cancel();
                 accept
             } else if (event.text == "x" && !event.repeat) {
                 Backend.core-file-select-up();

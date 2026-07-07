@@ -80,5 +80,9 @@ export component CoresScreen inherits ScreenBase {
         init => {
             self.focus();
         }
+        on-cancel => {
+            Backend.core-subscreen = CoreSubscreen.Detail;
+            Backend.core-file-select-cancel();
+        }
     }
 }

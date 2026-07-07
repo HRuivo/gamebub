@@ -47,6 +47,11 @@ impl UiState {
             let mut state = state_.borrow_mut();
             state.cores_handle_file_select_selected(PathBuf::new(), "..");
         });
+
+        let state_ = state.clone();
+        backend.on_core_file_select_cancel(move || {
+            worker::send(worker::Message::CoreFileCancelled);
+        });
     }
 
     pub fn cores_handle_run(&mut self, core_id: SharedString) {

@@ -54,6 +54,13 @@ impl CoreManager {
         }
     }
 
+    /// Called if a file selection is cancelled.
+    pub fn cancel_file_select(&mut self) {
+        // TODO support multiple file select
+        log::info!("File select cancelled");
+        self.core_id = None;
+    }
+
     fn send_core_file_list(&mut self, path: &Path) {
         let files = match self.list_core_files(&path) {
             Ok(files) => files,
