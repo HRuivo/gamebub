@@ -96,7 +96,7 @@ export component MainMenuScreen inherits ScreenBase {
                     on-pressed => {
                         MainMenu.last-focus = ButtonId.Cores;
                         Global.set-screen(ScreenId.Cores);
-                        Backend.main-menu-load-rom();
+                        Backend.main-menu-cores()
                     }
                 }
             }

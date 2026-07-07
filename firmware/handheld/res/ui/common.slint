@@ -7,6 +7,7 @@ import {
     SettingDatetime,
 } from "screens/settings/types.slint";
 import { FileListEntry } from "components/file_list.slint";
+import { CoreSubscreen } from "screens/cores/types.slint";
 
 export enum ScreenId {
     Setup,
@@ -102,6 +103,14 @@ export global Backend {
     ];
     in-out property <int> settings-index: 0;
 
+    in-out property <CoreSubscreen> core-subscreen;
+    in property <string> core-file-select-label: "";
+    in property <[FileListEntry]> core-file-select-list: [];
+    in property <string> core-file-select-path: "/fake/path/";
+    in property <bool> core-file-select-is-loading: false;
+    in-out property <string> core-file-select-error;
+    in-out property <int> core-file-select-index: 0;
+
     callback volume-changed(int);
     callback brightness-changed(int);
     callback power-off();
@@ -110,6 +119,7 @@ export global Backend {
     callback setup-complete();
     callback main-menu-run-cartridge();
     callback main-menu-load-rom();
+    callback main-menu-cores();
     callback rom-select-selected(int) -> bool;
     callback rom-select-focused(int);
     callback rom-select-up() -> bool;
@@ -124,6 +134,8 @@ export global Backend {
     callback tools-end-cart-reader();
     callback tools-get-battery-info() -> BatteryInfo;
     callback core-run(string);
+    callback core-file-select-selected(int);
+    callback core-file-select-up();
 
     callback screen-enter(ScreenId);
 

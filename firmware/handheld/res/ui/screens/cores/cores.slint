@@ -4,7 +4,8 @@ import { TextListView } from "../../components/list_view.slint";
 import { ControlHint } from "../../components/control_hint.slint";
 import { CoreList } from "core_list.slint";
 import { CoreDetails } from "core_detail.slint";
-import { CoreListInfo } from "types.slint";
+import { CoreSubscreen, CoreListInfo } from "types.slint";
+import { CoreFileSelect } from "core_file_select.slint";
 
 export component CoresScreen inherits ScreenBase {
     title: "Cores";
@@ -24,12 +25,16 @@ export component CoresScreen inherits ScreenBase {
     ];
     private property <int> selected-core: -1;
 
+    init => {
+        Backend.core-subscreen = CoreSubscreen.List;
+        selected-core = -1;
+    }
+
     // Debug only
-    // init => { selected-core = 0; }
     // width: 360px;
     // height: 240px;
 
-    if selected-core == -1: CoreList {
+    if Backend.core-subscreen == CoreSubscreen.List: CoreList {
         cores: cores;
         width: 100%;
         height: 100%;
@@ -43,14 +48,16 @@ export component CoresScreen inherits ScreenBase {
         }
         on-core-selected(i) => {
             selected-core = i;
+            Backend.core-subscreen = CoreSubscreen.Detail;
         }
     }
 
-    if selected-core != -1: CoreDetails {
+    if Backend.core-subscreen == CoreSubscreen.Detail: CoreDetails {
         width: 100%;
         height: 100%;
 
         init => {
+            // TODO: adjust screen title if coming back from File Select
             self.focus();
         }
 
@@ -58,13 +65,20 @@ export component CoresScreen inherits ScreenBase {
         core-author: cores[selected-core].core-author;
 
         on-cancel => {
-            selected-core = -1;
+            Backend.core-subscreen = CoreSubscreen.List;
         }
         on-run => {
             Backend.core-run(cores[selected-core].core-id);
+            // TODO: show loading screen?
         }
     }
 
-    // TODO file select
-    // TODO update title, "Select '{...}'"
+    if Backend.core-subscreen == CoreSubscreen.FileSelect: CoreFileSelect {
+        width: 100%;
+        height: 100%;
+
+        init => {
+            self.focus();
+        }
+    }
 }

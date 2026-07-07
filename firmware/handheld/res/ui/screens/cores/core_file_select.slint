@@ -3,29 +3,33 @@ import { FileListView } from "../../components/file_list.slint";
 import { ControlHint } from "../../components/control_hint.slint";
 
 export component CoreFileSelect {
-    private property <bool> is-loading: false;
-    private property <bool> has-error: Backend.rom-select-error != "";
+    private property <bool> has-error: Backend.core-file-select-error != "";
 
     forward-focus: list;
 
+    // TODO: correctly label new item when the list changes
+
     // Hack to call set-current-item when the backend forces a new item.
-    private property <int> _selected-index: Backend.rom-select-index;
+    private property <int> _selected-index: Backend.core-file-select-index;
     changed _selected-index => {
-        list.set-current-item(Backend.rom-select-index);
+        list.set-current-item(Backend.core-file-select-index);
     }
 
     i-focus-scope := FocusScope {
         key-pressed(event) => {
-            if (Backend.rom-select-is-loading) {
+            if (Backend.core-file-select-is-loading) {
                 accept
             } else if (has-error) {
                 if (event.text == "a" || event.text == "b") {
-                    Backend.rom-select-error = "";
-                    list.set-current-item(Backend.rom-select-index);
+                    Backend.core-file-select-error = "";
+                    list.set-current-item(Backend.core-file-select-index);
                 }
                 accept
             } else if (event.text == "b" && !event.repeat) {
-                Backend.rom-select-is-loading = Backend.rom-select-up();
+                // TODO: go back
+                accept
+            } else if (event.text == "x" && !event.repeat) {
+                Backend.core-file-select-up();
                 accept
             } else {
                 reject
@@ -36,7 +40,7 @@ export component CoreFileSelect {
             spacing: 2px;
 
             Text {
-                text: Backend.rom-select-path;
+                text: Backend.core-file-select-path;
             }
 
             Rectangle {
@@ -48,17 +52,15 @@ export component CoreFileSelect {
                 list := FileListView {
                     x: 0px;
                     width: scroll-bar.x;
-                    model: Backend.rom-select-list;
+                    model: Backend.core-file-select-list;
                     wrap: true;
-                    disabled: Backend.rom-select-is-loading || has-error;
+                    disabled: Backend.core-file-select-is-loading || has-error;
                     on-item-selected(i) => {
-                        Backend.rom-select-index = i;
-                        if Backend.rom-select-selected(i) {
-                            // TODO 
-                        }
+                        Backend.core-file-select-index = i;
+                        Backend.core-file-select-selected(i);
                     }
                     current-item-changed(i) => {
-                        Backend.rom-select-focused(i);
+                        // TODO
                     }
                 }
 
@@ -80,11 +82,14 @@ export component CoreFileSelect {
             HorizontalLayout {
                 alignment: space-between;
 
-                // TODO: figure out "back"
+                ControlHint {
+                    label: "Back";
+                    button: "b";
+                }
 
                 ControlHint {
                     label: "Up";
-                    button: "b";
+                    button: "x";
                 }
 
                 ControlHint {
@@ -95,7 +100,7 @@ export component CoreFileSelect {
         }
     }
 
-    if Backend.rom-select-is-loading:  Rectangle {
+    if Backend.core-file-select-is-loading:  Rectangle {
         background: #FFF;
         border-color: black;
         border-width: 1px;
@@ -124,7 +129,7 @@ export component CoreFileSelect {
             spacing: 4px;
             Text {
                 horizontal-alignment: center;
-                text: Backend.rom-select-error;
+                text: Backend.core-file-select-error;
                 overflow: elide;
             }
         }

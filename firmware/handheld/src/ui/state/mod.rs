@@ -34,6 +34,7 @@ pub struct UiState {
     rom_select_directory: PathBuf,
     rom_select_timer: Timer,
     settings: settings::SettingsState,
+    core_file_select_directory: PathBuf,
 }
 
 impl UiState {
@@ -53,6 +54,7 @@ impl UiState {
             rom_select_directory,
             rom_select_timer: Timer::default(),
             settings: settings::SettingsState::default(),
+            core_file_select_directory: PathBuf::new(),
         };
         let state = Rc::new(RefCell::new(state));
         state.borrow_mut().setup(state.clone(), device);

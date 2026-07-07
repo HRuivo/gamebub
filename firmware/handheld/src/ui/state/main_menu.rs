@@ -1,7 +1,7 @@
 use std::{cell::RefCell, rc::Rc};
 
 use super::super::slint::Backend;
-use slint::ComponentHandle;
+use slint::{ComponentHandle, SharedString};
 
 use crate::{device::Device, worker};
 
@@ -30,6 +30,18 @@ impl UiState {
             backend.set_rom_select_index(-1);
             backend.set_rom_select_is_loading(true);
             backend.set_rom_select_progress(0.0);
+        });
+
+        let state_ = state.clone();
+        backend.on_main_menu_cores(move || {
+            let state = state_.borrow_mut();
+            let root = state.root.unwrap();
+            let backend = root.global::<Backend>();
+
+            // TODO list cores
+
+            backend.set_core_file_select_list(slint::ModelRc::default());
+            backend.set_core_file_select_label(SharedString::new());
         });
     }
 }

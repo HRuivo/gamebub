@@ -6,6 +6,7 @@ mod state;
 use ::slint::platform::WindowAdapter;
 use ::slint::{ComponentHandle, WindowSize};
 pub use buttons::{Button, ButtonEvent, ButtonMap};
+use std::path::PathBuf;
 use std::sync::{mpsc, OnceLock};
 use std::time::Duration;
 use std::{cell::RefCell, rc::Rc, sync::mpsc::Receiver, time::Instant};
@@ -71,6 +72,12 @@ pub enum Message {
     DockEnd,
     /// Take a UI screenshot
     Screenshot,
+    /// Open core file selection screen
+    CoreFileSelectBegin { label: String, path: PathBuf },
+    /// Update core file selection list
+    CoreFileSelectList(Vec<(String, bool)>),
+    /// Core file select error
+    CoreFileSelectError(String),
 }
 
 /// Send a message to the UI thread.
@@ -318,6 +325,15 @@ impl UI {
                     Ok(f) => log::info!("Saved UI screenshot to {f}"),
                     Err(e) => log::error!("Screenshot error: {e}"),
                 }
+            }
+            Message::CoreFileSelectBegin { label, path } => {
+                self.state.borrow_mut().cores_file_select_begin(label, path);
+            }
+            Message::CoreFileSelectList(files) => {
+                self.state.borrow_mut().cores_file_select_list(files);
+            }
+            Message::CoreFileSelectError(error) => {
+                self.state.borrow_mut().cores_file_select_set_error(error);
             }
             #[allow(unreachable_patterns)]
             _ => {

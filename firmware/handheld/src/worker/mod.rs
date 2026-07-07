@@ -44,6 +44,8 @@ pub enum Message {
 
     /// Start running a core (ID)
     RunCore(String),
+    /// A file was selected for the core (could be a directory).
+    CoreFileSelected(PathBuf),
 }
 
 /// Send a message to the worker threads.
@@ -202,6 +204,9 @@ fn dispatch(message: Message) {
         }
         Message::RunCore(id) => {
             CoreManager::lock().run_core(&id);
+        }
+        Message::CoreFileSelected(file) => {
+            CoreManager::lock().handle_file_selected(file);
         }
         #[allow(unreachable_patterns)]
         _ => {
