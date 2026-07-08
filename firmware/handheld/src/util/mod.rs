@@ -1,31 +1,20 @@
 pub mod background_io;
 
-use std::{fs::File, path::Path};
+use std::{
+    fs::File,
+    path::{Path, PathBuf},
+};
 
 pub fn open_system_file(relative_path: &str) -> std::io::Result<File> {
-    use std::io::{Error, ErrorKind};
-    let roots = &[
-        #[cfg(feature = "rev1")]
-        "/sdcard/system_rev1/",
-        #[cfg(feature = "rev2")]
-        "/sdcard/system_rev2/",
-        #[cfg(feature = "rev3")]
-        "/sdcard/system_rev3/",
-        #[cfg(feature = "rev4")]
-        "/sdcard/system_rev4/",
-        "/sdcard/system/",
-        "/system/",
-    ];
-    for root in roots {
-        let path = Path::new(root).join(relative_path);
-        log::info!("path: {}", path.display());
-        match File::open(&path) {
-            Ok(f) => return Ok(f),
-            Err(e) if e.kind() == ErrorKind::NotFound => continue,
-            Err(e) => return Err(e),
-        }
+    File::open(get_system_file_path(relative_path))
+}
+
+pub fn get_system_file_path(relative_path: &str) -> PathBuf {
+    let path = Path::new("/sdcard/system/").join(relative_path);
+    if path.is_file() {
+        return path;
     }
-    Err(Error::from(ErrorKind::NotFound))
+    Path::new("/system/").join(relative_path)
 }
 
 pub fn copy_file(from: &Path, to: &Path) -> std::io::Result<u64> {

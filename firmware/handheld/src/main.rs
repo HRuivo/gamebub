@@ -86,7 +86,7 @@ fn main() -> anyhow::Result<()> {
 
     // Initial programming FPGA
     fn program_fpga(device: &mut Device) -> anyhow::Result<()> {
-        bitstream::program_boot(device)?;
+        bitstream::initial_program_boot(device)?;
         device.fpga.enable_interrupt(fpga::Irq::Button)?;
         device.lcd.enable_fpga_control()?;
         Ok(())

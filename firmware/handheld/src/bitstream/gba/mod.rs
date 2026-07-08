@@ -11,6 +11,7 @@ use rtc::RtcState;
 use thiserror::Error;
 
 use crate::{
+    core::CoreHandler,
     device::{drivers::fpga, Device},
     kvs, ui,
 };
@@ -468,15 +469,6 @@ impl Gba {
 }
 
 impl Bitstream for Gba {
-    fn get_bitstream_path(&self) -> &'static str {
-        return "gba.bit.hs";
-    }
-
-    fn on_after_program(&mut self) -> Result<(), String> {
-        Device::lock().fpga.set_system_clock_rate(SYSTEM_CLOCK_RATE);
-        Ok(())
-    }
-
     fn set_paused(&mut self, paused: bool) -> Result<(), fpga::Error> {
         let mut device = Device::lock();
 
@@ -544,5 +536,35 @@ impl Bitstream for Gba {
                 .write_u32(REG_IMU_ACCEL_Y, accel_y as u32)
                 .unwrap();
         }
+    }
+
+    fn needs_save_persist(&self) -> bool {
+        self.needs_save_persist()
+    }
+
+    fn persist_save(&mut self) -> Result<(), String> {
+        self.persist_save().map_err(|e| e.to_string())
+    }
+}
+
+impl CoreHandler for Gba {
+    fn get_bitstream_path(&self) -> PathBuf {
+        crate::util::get_system_file_path("gba.bit.hs")
+    }
+
+    fn start_physical_cartridge(&mut self) -> Result<(), String> {
+        self.set_physical_cartridge().map_err(|e| e.to_string())
+    }
+
+    fn start_emulated_cartridge(&mut self, rom: &Path) -> Result<(), String> {
+        self.set_emulated_cartridge(rom).map_err(|e| e.to_string())
+    }
+
+    fn as_legacy_bitstream(&mut self) -> &mut dyn super::Bitstream {
+        self
+    }
+
+    fn on_after_program(&mut self) {
+        Device::lock().fpga.set_system_clock_rate(SYSTEM_CLOCK_RATE);
     }
 }

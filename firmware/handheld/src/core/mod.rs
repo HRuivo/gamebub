@@ -1,14 +1,9 @@
 use std::{
-    ops::DerefMut,
     path::{Path, PathBuf},
     sync::{LazyLock, Mutex, MutexGuard},
 };
 
-use crate::{
-    bitstream::{self, CurrentBitstream},
-    device::Device,
-    ui,
-};
+use crate::{bitstream, device::Device, ui};
 
 mod info;
 
@@ -18,7 +13,9 @@ static CORE_MANAGER: LazyLock<Mutex<CoreManager>> =
 pub struct CoreManager {
     stage: Stage,
     core_info: Option<&'static info::CoreInfo>,
+    core_handler: CoreHandlerImpl,
     selected_files: Vec<Option<PathBuf>>,
+    run_cartridge: bool,
 }
 
 #[derive(Copy, Clone, Debug, PartialEq)]
@@ -34,7 +31,28 @@ enum Stage {
 ///
 /// The main purpose is to add core-specific customizations for built-in cores
 /// while generic core functionality is being built.
-trait CoreHandler {}
+pub trait CoreHandler {
+    /// Returns the path to the bitstream.
+    fn get_bitstream_path(&self) -> PathBuf;
+
+    /// Called after the bitstream is programmed.
+    fn on_after_program(&mut self);
+
+    /// Temporary: Run Cartridge
+    fn start_physical_cartridge(&mut self) -> Result<(), String>;
+
+    /// Temporary: Run Rom
+    fn start_emulated_cartridge(&mut self, rom: &Path) -> Result<(), String>;
+
+    /// Temporary: as Bitstream trait
+    fn as_legacy_bitstream(&mut self) -> &mut dyn bitstream::Bitstream;
+}
+
+enum CoreHandlerImpl {
+    None,
+    Gameboy(crate::bitstream::gameboy::Gameboy),
+    Gba(crate::bitstream::gba::Gba),
+}
 
 /// # CoreManager
 ///
@@ -74,7 +92,9 @@ impl CoreManager {
         CoreManager {
             core_info: None,
             stage: Stage::Idle,
+            core_handler: CoreHandlerImpl::None,
             selected_files: Vec::new(),
+            run_cartridge: false,
         }
     }
 
@@ -83,12 +103,16 @@ impl CoreManager {
     }
 
     fn get_core_handler(&mut self) -> Option<&mut dyn CoreHandler> {
-        None
+        match &mut self.core_handler {
+            CoreHandlerImpl::None => None,
+            CoreHandlerImpl::Gameboy(gameboy) => Some(gameboy),
+            CoreHandlerImpl::Gba(gba) => Some(gba),
+        }
     }
 
     /// Start the process of running a specific core (by ID).
-    pub fn run_core(&mut self, id: &str) {
-        log::info!("Run core: {id}");
+    pub fn run_core(&mut self, id: &str, run_cartridge: bool) {
+        log::info!("Run core={id} cart={run_cartridge}");
         assert!(self.core_info.is_none());
         assert!(self.stage == Stage::Idle);
         self.core_info = info::get_core_info(id);
@@ -96,21 +120,37 @@ impl CoreManager {
             log::error!("Core not found: '{id}'");
             return;
         };
+        self.core_handler = match self.core_info.unwrap().id {
+            "Game-Bub.GB" => CoreHandlerImpl::Gameboy(crate::bitstream::gameboy::Gameboy::new()),
+            "Game-Bub.GBA" => CoreHandlerImpl::Gba(crate::bitstream::gba::Gba::new()),
+            _ => CoreHandlerImpl::None,
+        };
+
         self.stage = Stage::LoadInit;
+        self.run_cartridge = run_cartridge;
 
         self.selected_files = vec![None; core.files.len()];
         self.next_file_select();
     }
 
+    /// Temporary transitional method
+    /// TODO: remove
+    pub fn current_bitstream(&mut self) -> Option<&mut dyn bitstream::Bitstream> {
+        self.get_core_handler().map(|c| c.as_legacy_bitstream())
+    }
+
     pub fn exit_core(&mut self) {
+        // TODO persist files
+
         self.core_info = None;
+        self.core_handler = CoreHandlerImpl::None;
         self.stage = Stage::Idle;
         self.selected_files.clear();
 
         // Cut cartridge power (if enabled)
         Device::lock().set_cart_power(false);
         // And go back to the boot bitstream
-        bitstream::current().ensure_boot().unwrap();
+        bitstream::program_boot();
     }
 
     fn next_file_select(&mut self) {
@@ -129,7 +169,11 @@ impl CoreManager {
                 return;
             }
             self.stage = Stage::LoadSelectFile(index);
-            if !core.files[index].user_selected {
+            let file = &core.files[index];
+            if !file.user_selected {
+                continue;
+            }
+            if self.run_cartridge && (file.id == 0 || file.dependent_on_0) {
                 continue;
             }
             break index;
@@ -149,26 +193,27 @@ impl CoreManager {
     fn load_bitstream(&mut self) {
         assert!(self.stage == Stage::LoadBitstream);
 
-        // TODO generalize
-        match self.core_info.unwrap().id {
-            "Game-Bub.GB" => bitstream::current().ensure_gameboy().unwrap(),
-            "Game-Bub.GBA" => bitstream::current().ensure_gba().unwrap(),
-            _ => panic!(),
-        };
+        let bitstream_path = self.get_core_handler().unwrap().get_bitstream_path();
+        bitstream::program_fpga(&bitstream_path);
+        self.get_core_handler().unwrap().on_after_program();
+
+        // Enable cartridge power after the bitstream is loaded.
+        if self.run_cartridge {
+            let mut device = Device::lock();
+            device.set_cart_power(true);
+        }
 
         // TODO: enter core loading screen
         ui::send(ui::Message::EnterGame);
 
-        // TODO generalize
-        let rom_path = self.selected_files[0].take().unwrap();
-        let result: Result<(), String> = match bitstream::current().deref_mut() {
-            CurrentBitstream::None => Err("no bitstream".into()),
-            CurrentBitstream::Gameboy(x) => x
-                .set_emulated_cartridge(rom_path.as_path())
-                .map_err(|e| e.to_string()),
-            CurrentBitstream::Gba(x) => x
-                .set_emulated_cartridge(rom_path.as_path())
-                .map_err(|e| e.to_string()),
+        // TODO: replace with generic loading sequence
+        let result = if self.run_cartridge {
+            self.get_core_handler().unwrap().start_physical_cartridge()
+        } else {
+            let rom_path = self.selected_files[0].take().unwrap();
+            self.get_core_handler()
+                .unwrap()
+                .start_emulated_cartridge(rom_path.as_path())
         };
 
         match result {
@@ -178,7 +223,7 @@ impl CoreManager {
                 self.stage = Stage::Running;
             }
             Err(err) => {
-                bitstream::current().ensure_boot().unwrap();
+                bitstream::program_boot();
                 ui::send(ui::Message::RomSelectError(err))
             }
         }

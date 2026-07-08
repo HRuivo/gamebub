@@ -1,6 +1,7 @@
+use std::ffi::OsStr;
 use std::fs::File;
 use std::io::Read;
-use std::sync::{Mutex, MutexGuard};
+use std::path::Path;
 use std::time::Duration;
 
 use crate::bitstream::util::scratch_buffer::ScratchBuffer;
@@ -19,12 +20,6 @@ static SCRATCH: ScratchBuffer<{ 16 * 1024 }> = ScratchBuffer::new();
 
 /// Driver for a specific bitstream.
 pub trait Bitstream {
-    /// Get the path for the bitstream.
-    fn get_bitstream_path(&self) -> &'static str;
-
-    /// Do final initialization after programming the bitstream.
-    fn on_after_program(&mut self) -> Result<(), String>;
-
     /// Set whether the inner design is paused.
     fn set_paused(&mut self, paused: bool) -> Result<(), fpga::Error>;
 
@@ -33,18 +28,14 @@ pub trait Bitstream {
 
     /// Called when a vblank IRQ occurs.
     fn on_vblank_irq(&mut self);
+
+    fn needs_save_persist(&self) -> bool;
+
+    fn persist_save(&mut self) -> Result<(), String>;
 }
 
-/// The current global bitstream, behind a lock.
-static CURRENT: Mutex<CurrentBitstream> = Mutex::new(CurrentBitstream::None);
-
-/// Lock and return the current bitstream.
-pub fn current() -> MutexGuard<'static, CurrentBitstream> {
-    CURRENT.lock().unwrap()
-}
-
-fn program_fpga(path: &str) {
-    log::info!("Loading bitstream {}", path);
+pub fn program_fpga(path: &Path) {
+    log::info!("Loading bitstream {}", path.display());
     led::LedController::set_behavior(led::LedBehavior::LOADING);
     let mut device = Device::lock();
     let display_mode = device.get_display_mode();
@@ -58,7 +49,8 @@ fn program_fpga(path: &str) {
         std::thread::sleep(Duration::from_millis(10));
     }
 
-    let file = crate::util::open_system_file(path).unwrap();
+    assert!(path.extension() == Some(OsStr::new("hs")));
+    let file = File::open(path).unwrap();
     let mut bitstream = heatshrink_decompress_stream(file);
 
     device
@@ -76,7 +68,7 @@ fn program_fpga(path: &str) {
     }
 }
 
-pub fn program_boot(device: &mut Device) -> anyhow::Result<()> {
+pub fn initial_program_boot(device: &mut Device) -> anyhow::Result<()> {
     use anyhow::Context as _;
     let file = crate::util::open_system_file("boot.bit.hs").context("Failed to read bitstream")?;
     let mut bitstream = heatshrink_decompress_stream(file);
@@ -95,61 +87,6 @@ fn heatshrink_decompress_stream(file: File) -> impl Read {
     embedded_io_adapters::std::ToStd::new(decoder)
 }
 
-pub enum CurrentBitstream {
-    None,
-    Gameboy(gameboy::Gameboy),
-    Gba(gba::Gba),
-    // TODO: add "Boot" variant to distinguish between actually None and Boot.
-}
-
-impl CurrentBitstream {
-    pub fn get(&mut self) -> Option<&mut dyn Bitstream> {
-        match self {
-            CurrentBitstream::None => None,
-            CurrentBitstream::Gameboy(x) => Some(x),
-            CurrentBitstream::Gba(x) => Some(x),
-        }
-    }
-
-    fn set(&mut self, new: CurrentBitstream) -> Result<(), String> {
-        *self = new;
-        if let Some(bitstream) = self.get() {
-            program_fpga(bitstream.get_bitstream_path());
-            bitstream.on_after_program()?;
-        }
-        Ok(())
-    }
-
-    /// Ensure the boot is loaded.
-    pub fn ensure_boot(&mut self) -> Result<(), String> {
-        match self {
-            CurrentBitstream::None => Ok(()),
-            _ => {
-                program_fpga("boot.bit.hs");
-                self.set(CurrentBitstream::None)
-            }
-        }
-    }
-
-    /// Ensure the gameboy bitstream is loaded.
-    pub fn ensure_gameboy(&mut self) -> Result<(), String> {
-        match self {
-            CurrentBitstream::Gameboy(_) => Ok(()),
-            _ => {
-                let bitstream = gameboy::Gameboy::new();
-                self.set(CurrentBitstream::Gameboy(bitstream))
-            }
-        }
-    }
-
-    /// Ensure the GBA bitstream is loaded.
-    pub fn ensure_gba(&mut self) -> Result<(), String> {
-        match self {
-            CurrentBitstream::Gba(_) => Ok(()),
-            _ => {
-                let bitstream = gba::Gba::new();
-                self.set(CurrentBitstream::Gba(bitstream))
-            }
-        }
-    }
+pub fn program_boot() {
+    program_fpga(&crate::util::get_system_file_path("boot.bit.hs"));
 }

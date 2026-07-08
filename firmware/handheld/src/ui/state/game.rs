@@ -1,14 +1,9 @@
-use std::{cell::RefCell, ops::DerefMut, rc::Rc, time::Duration};
+use std::{cell::RefCell, rc::Rc, time::Duration};
 
 use super::super::slint::Backend;
 use slint::{ComponentHandle, Timer};
 
-use crate::{
-    bitstream::{self, Bitstream, CurrentBitstream},
-    device::Device,
-    ui::slint::ScreenId,
-    worker,
-};
+use crate::{core::CoreManager, device::Device, ui::slint::ScreenId, worker};
 
 use super::UiState;
 
@@ -20,17 +15,13 @@ impl UiState {
 
         let state_ = state.clone();
         backend.on_game_set_paused(move |paused| {
-            let needs_persist = match bitstream::current().deref_mut() {
-                CurrentBitstream::None => false,
-                CurrentBitstream::Gameboy(x) => {
-                    x.set_paused(paused).unwrap();
-                    x.needs_save_persist()
-                }
-                CurrentBitstream::Gba(x) => {
-                    x.set_paused(paused).unwrap();
-                    x.needs_save_persist()
-                }
+            let needs_persist = {
+                let mut manager = CoreManager::lock();
+                let bitstream = manager.current_bitstream().unwrap();
+                bitstream.set_paused(paused).unwrap();
+                bitstream.needs_save_persist()
             };
+
             if paused && needs_persist {
                 let state = state_.borrow_mut();
                 let root = state.root.unwrap();
@@ -40,10 +31,12 @@ impl UiState {
             }
         });
 
-        backend.on_game_reset(move || match bitstream::current().deref_mut() {
-            CurrentBitstream::None => {}
-            CurrentBitstream::Gameboy(x) => x.reset().unwrap(),
-            CurrentBitstream::Gba(x) => x.reset().unwrap(),
+        backend.on_game_reset(move || {
+            CoreManager::lock()
+                .current_bitstream()
+                .unwrap()
+                .reset()
+                .unwrap();
         });
 
         let state_ = state.clone();

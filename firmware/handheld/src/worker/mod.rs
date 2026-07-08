@@ -1,17 +1,15 @@
 //! Worker threads to do background blocking work.
 
-use std::ops::DerefMut;
 use std::path::{Path, PathBuf};
 use std::sync::{mpsc, OnceLock};
 
-use crate::bitstream::CurrentBitstream;
 use crate::core::CoreManager;
 use crate::device::drivers::fpga;
 use crate::device::Device;
 use crate::device::DisplayMode;
 use crate::fwinfo::FirmwareVersion;
 use crate::input::InputManager;
-use crate::{bitstream, kvs, ui};
+use crate::{kvs, ui};
 
 #[derive(Debug)]
 pub enum Message {
@@ -34,11 +32,9 @@ pub enum Message {
     /// Persist emulated cartridge save
     SaveGame,
     /// Run a ROM file
-    RunRomFile(PathBuf),
+    RunRomFile(#[allow(unused)] PathBuf),
     /// Load ROM select entries
     ListRoms(PathBuf),
-    /// Load Boot / Utility bitstream
-    EnsureBootBitstream,
     /// The idle timer has expired
     IdleTimerExpired,
 
@@ -85,7 +81,7 @@ fn dispatch(message: Message) {
         Message::FpgaIrq(irq_mask) => {
             if (irq_mask & fpga::Irq::ModuleVblank.as_flag()) != 0 {
                 // Module vblank
-                if let Some(bitstream) = crate::bitstream::current().get() {
+                if let Some(bitstream) = CoreManager::lock().current_bitstream() {
                     bitstream.on_vblank_irq();
                 }
             }
@@ -102,63 +98,24 @@ fn dispatch(message: Message) {
                 device.get_cart_switch()
             };
             log::info!("Cart switch: {}", cart_type);
-            if cart_type {
-                bitstream::current().ensure_gameboy().unwrap();
+
+            let core_id = if cart_type {
+                "Game-Bub.GB"
             } else {
-                bitstream::current().ensure_gba().unwrap();
+                "Game-Bub.GBA"
             };
 
-            // Enable cartridge power after the bitstream is loaded.
-            {
-                let mut device = Device::lock();
-                device.set_cart_power(true);
-            }
-
-            match bitstream::current().deref_mut() {
-                CurrentBitstream::None => unreachable!(),
-                CurrentBitstream::Gameboy(x) => x.set_physical_cartridge().unwrap(),
-                CurrentBitstream::Gba(x) => x.set_physical_cartridge().unwrap(),
-            }
-
-            ui::send(ui::Message::EnterGame);
+            CoreManager::lock().run_core(core_id, true);
         }
         Message::SaveGame => {
             // TODO handle error more gracefully
-            match bitstream::current().deref_mut() {
-                CurrentBitstream::None => {}
-                CurrentBitstream::Gameboy(x) => x.persist_ram().unwrap(),
-                CurrentBitstream::Gba(x) => x.persist_save().unwrap(),
+            if let Some(b) = CoreManager::lock().current_bitstream() {
+                b.persist_save().unwrap();
             }
             ui::send(ui::Message::GameSaved);
         }
-        Message::RunRomFile(path) => {
-            match path.extension().and_then(|e| e.to_str()) {
-                Some("gbc") | Some("gb") => bitstream::current().ensure_gameboy().unwrap(),
-                Some("gba") => bitstream::current().ensure_gba().unwrap(),
-                _ => {
-                    ui::send(ui::Message::RomSelectError(
-                        "unsupported ROM file type".into(),
-                    ));
-                    return;
-                }
-            }
-
-            let result: Result<(), String> = match bitstream::current().deref_mut() {
-                CurrentBitstream::None => Err("no bitstream".into()),
-                CurrentBitstream::Gameboy(x) => x
-                    .set_emulated_cartridge(path.as_path())
-                    .map_err(|e| e.to_string()),
-                CurrentBitstream::Gba(x) => x
-                    .set_emulated_cartridge(path.as_path())
-                    .map_err(|e| e.to_string()),
-            };
-            match result {
-                Ok(()) => ui::send(ui::Message::EnterGame),
-                Err(err) => {
-                    bitstream::current().ensure_boot().unwrap();
-                    ui::send(ui::Message::RomSelectError(err))
-                }
-            }
+        Message::RunRomFile(_) => {
+            // TODO: remove
         }
         Message::ListRoms(path) => {
             let files = match rom_select_get_files(&path) {
@@ -194,9 +151,6 @@ fn dispatch(message: Message) {
             device.docked = false;
             device.change_display_mode(DisplayMode::Internal).unwrap();
         }
-        Message::EnsureBootBitstream => {
-            bitstream::current().ensure_boot().unwrap();
-        }
         Message::IdleTimerExpired => {
             // If the idle timer expires during setup, just power off.
             let setup_stage = kvs::keys::SETUP_STAGE.get().unwrap_or_default();
@@ -207,7 +161,7 @@ fn dispatch(message: Message) {
             // TODO: Dim the screen temporarily.
         }
         Message::RunCore(id) => {
-            CoreManager::lock().run_core(&id);
+            CoreManager::lock().run_core(&id, false);
         }
         Message::ExitCore => CoreManager::lock().exit_core(),
         Message::CoreFileSelected(file) => {
