@@ -42,6 +42,7 @@ impl PowerManager {
                 log::warn!("Battery critically low, powering off");
 
                 led::LedController::set_behavior(LedBehavior::BATTERY_CRITICAL);
+                crate::core::CoreManager::lock().prepare_for_power_off();
                 device.power_off();
             }
         }

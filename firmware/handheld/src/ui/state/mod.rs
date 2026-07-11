@@ -8,8 +8,8 @@ use std::{
 
 use slint::{ComponentHandle, Global, Timer, TimerMode, Weak};
 
-use crate::device::Device;
 use crate::kvs;
+use crate::{core::CoreManager, device::Device};
 
 use super::slint::{
     Backend, MainWindow, ScreenId, SettingDatetime, SettingEntry, SettingType, SettingValue,
@@ -160,10 +160,12 @@ impl UiState {
         });
 
         backend.on_power_off(|| {
+            CoreManager::lock().prepare_for_power_off();
             Device::lock().power_off();
         });
 
         backend.on_reboot(|| {
+            CoreManager::lock().prepare_for_power_off();
             Device::lock().reboot();
         });
 

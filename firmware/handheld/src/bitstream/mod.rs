@@ -28,14 +28,6 @@ pub trait Bitstream {
 
     /// Called when a vblank IRQ occurs.
     fn on_vblank_irq(&mut self);
-
-    fn needs_save_persist(&self) -> bool {
-        false
-    }
-
-    fn persist_save(&mut self) -> Result<(), String> {
-        Ok(())
-    }
 }
 
 pub fn program_fpga(path: &Path) {

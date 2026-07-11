@@ -23,11 +23,6 @@ export component StatusBar inherits Rectangle {
             vertical-alignment: center;
         }
 
-        if Backend.status-is-saving: Image {
-            source: Icons.saving;
-            colorize: #333;
-        }
-
         // Battery text
         Text {
             text: "\{Backend.battery-level}%";

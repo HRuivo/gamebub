@@ -170,16 +170,24 @@ impl CoreManager {
         self.get_core_handler().map(|c| c.as_legacy_bitstream())
     }
 
+    pub fn prepare_for_power_off(&mut self) {
+        if self.stage == Stage::Running {
+            self.persist_files();
+        }
+        Device::lock().set_cart_power(false);
+    }
+
     pub fn exit_core(&mut self) {
         self.persist_files();
+
+        // Cut cartridge power (if enabled)
+        Device::lock().set_cart_power(false);
 
         self.core_info = None;
         self.core_handler = CoreHandlerImpl::None;
         self.stage = Stage::Idle;
         self.selected_files.clear();
 
-        // Cut cartridge power (if enabled)
-        Device::lock().set_cart_power(false);
         // And go back to the boot bitstream
         bitstream::program_boot();
     }

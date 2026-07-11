@@ -29,8 +29,6 @@ pub enum Message {
 
     /// Run a cartridge
     RunCartridge,
-    /// Persist emulated cartridge save
-    SaveGame,
     /// Run a ROM file
     RunRomFile(#[allow(unused)] PathBuf),
     /// Load ROM select entries
@@ -106,13 +104,6 @@ fn dispatch(message: Message) {
             };
 
             CoreManager::lock().run_core(core_id, true);
-        }
-        Message::SaveGame => {
-            // TODO handle error more gracefully
-            if let Some(b) = CoreManager::lock().current_bitstream() {
-                b.persist_save().unwrap();
-            }
-            ui::send(ui::Message::GameSaved);
         }
         Message::RunRomFile(_) => {
             // TODO: remove
