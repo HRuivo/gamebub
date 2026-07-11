@@ -15,7 +15,7 @@ pub fn iter_chunks(
     mut file: File,
     buffer: &mut [u8],
     mut f: impl FnMut(&[u8]),
-) -> Result<(), std::io::Error> {
+) -> Result<Duration, std::io::Error> {
     pub enum ReaderResult<'a> {
         Ok(&'a mut [u8], usize),
         Eof,
@@ -26,6 +26,7 @@ pub fn iter_chunks(
         result: Option<ReaderResult<'a>>,
         free0: Option<&'a mut [u8]>,
         free1: Option<&'a mut [u8]>,
+        duration: Duration,
     }
 
     let (buf0, buf1) = buffer.split_at_mut(buffer.len() / 2);
@@ -33,6 +34,7 @@ pub fn iter_chunks(
         result: None,
         free0: Some(buf0),
         free1: Some(buf1),
+        duration: Duration::ZERO,
     });
     let condvar = Condvar::new();
 
@@ -63,11 +65,14 @@ pub fn iter_chunks(
                     Ok(n) => (ReaderResult::Ok(buf, n), false),
                     Err(err) => (ReaderResult::Err(err), true),
                 };
-                state.lock().unwrap().result = Some(out);
+                {
+                    let mut state = state.lock().unwrap();
+                    state.result = Some(out);
+                    state.duration = duration;
+                }
                 condvar.notify_all();
 
                 if exit {
-                    log::info!("Read in {}ms", duration.as_millis() as u32);
                     break;
                 }
             }
@@ -76,11 +81,11 @@ pub fn iter_chunks(
         // Consumer (main thread)
         loop {
             // Wait for a result and take it (sync point)
-            let result = {
+            let (result, duration) = {
                 let mut state = condvar
                     .wait_while(state.lock().unwrap(), |x| x.result.is_none())
                     .unwrap();
-                state.result.take().unwrap()
+                (state.result.take().unwrap(), state.duration)
             };
             condvar.notify_all();
 
@@ -90,7 +95,7 @@ pub fn iter_chunks(
                     f(&buf[0..n]);
                     buf
                 }
-                ReaderResult::Eof => break Ok(()),
+                ReaderResult::Eof => break Ok(duration),
                 ReaderResult::Err(error) => break Err(error),
             };
 

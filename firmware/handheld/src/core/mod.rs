@@ -362,7 +362,7 @@ impl CoreManager {
             let mut handler_duration = Duration::ZERO;
             let mut transferred = 0;
             // TODO: maybe only bother with background I/O for a large file (> 256KB?)
-            crate::util::background_io::iter_chunks(file, &mut scratch, |chunk| {
+            let read_dur = crate::util::background_io::iter_chunks(file, &mut scratch, |chunk| {
                 let transfer_start = Instant::now();
                 let max_clock = Some(Hertz(info.max_transfer_speed * 1000 * 2));
                 let command = SpiCommand {
@@ -395,9 +395,10 @@ impl CoreManager {
             let duration = start_time.elapsed();
             self.get_core_handler().unwrap().on_after_file_load(info.id);
             log::info!(
-                "Loaded {} bytes in {} ms ({}/{} ms transfer/handler)",
+                "Loaded {} bytes in {} ms ({}/{}/{} ms read/transfer/handler)",
                 transferred,
                 duration.as_millis(),
+                read_dur.as_millis(),
                 transfer_duration.as_millis(),
                 handler_duration.as_millis(),
             );
