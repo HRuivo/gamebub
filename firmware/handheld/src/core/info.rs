@@ -27,6 +27,8 @@ pub struct CoreFile {
     pub user_selected: bool,
     /// If true, dependent on the file with ID 0 (and the path is determined based on that path + this extension).
     pub dependent_on_0: bool,
+    /// If true, if the file is not loaded, the region will still be initialized with 0xFFs.
+    pub initialize: bool,
 
     // TODO: maybe broad types based on how the user accesses them?
     /// The address to load the file to.
@@ -59,6 +61,7 @@ static CORES: &[CoreInfo] = &[
                 read_only: true,
                 user_selected: true,
                 dependent_on_0: false,
+                initialize: false,
 
                 address: 0x8000_0000, // SDRAM
                 max_size: 8 * 1024 * 1024,
@@ -76,6 +79,7 @@ static CORES: &[CoreInfo] = &[
                 read_only: false,
                 user_selected: false,
                 dependent_on_0: true,
+                initialize: true,
 
                 address: 0x0500_0000, // SRAM
                 max_size: 128 * 1024 + 48,
@@ -93,6 +97,7 @@ static CORES: &[CoreInfo] = &[
                 read_only: true,
                 user_selected: false,
                 dependent_on_0: false,
+                initialize: false,
 
                 address: 0xE010_0000,
                 max_size: 2048 + 256,
@@ -117,6 +122,7 @@ static CORES: &[CoreInfo] = &[
                 read_only: true,
                 user_selected: true,
                 dependent_on_0: false,
+                initialize: false,
 
                 address: 0x8000_0000, // SDRAM
                 max_size: 32 * 1024 * 1024,
@@ -134,6 +140,7 @@ static CORES: &[CoreInfo] = &[
                 read_only: false,
                 user_selected: false,
                 dependent_on_0: true,
+                initialize: true,
 
                 address: 0x0500_0000, // SRAM
                 max_size: 128 * 1024 + 16,
@@ -151,6 +158,7 @@ static CORES: &[CoreInfo] = &[
                 read_only: true,
                 user_selected: false,
                 dependent_on_0: false,
+                initialize: false,
 
                 address: 0xE010_0000,
                 max_size: 0,

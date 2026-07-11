@@ -273,6 +273,8 @@ impl CoreManager {
         let mut overall_total = 0u64;
         let mut last_progress_update = Instant::now();
 
+        let mut scratch = crate::bitstream::SCRATCH.take().expect("scratch buffer");
+
         let core = self.core_info.unwrap();
         let file_0_index = core.files.iter().position(|f| f.id == 0);
         for (i, info) in core.files.iter().enumerate() {
@@ -311,7 +313,42 @@ impl CoreManager {
             };
 
             log::info!("Load file {} from {}", info.label, path.display());
-            let mut file = File::open(&path).expect("file open"); // TODO propagate error
+            let mut file = match File::open(&path) {
+                Ok(file) => file,
+                Err(_) if info.optional && info.initialize => {
+                    let buf = scratch.deref_mut();
+                    buf.fill(0xFF);
+                    let mut pos = 0u32;
+                    let len = info.max_size.max(info.exact_size);
+                    while pos < len {
+                        let n = ((len - pos) as usize).min(buf.len());
+                        let max_clock = Some(Hertz(info.max_transfer_speed * 1000 * 2));
+                        let command = SpiCommand {
+                            word_size: info.transfer_word_size,
+                            byte_swap: true,
+                            increment_address: true,
+                        };
+                        let _ = Device::lock().fpga.spi_write(
+                            max_clock,
+                            command,
+                            info.address + pos,
+                            &buf[..n],
+                        );
+                        pos += n as u32;
+                    }
+                    log::info!("Failed to open file, clearing");
+                    continue;
+                }
+                Err(_) if info.optional => {
+                    log::info!("Failed to open file, skipping");
+                    continue;
+                }
+                Err(_) => {
+                    // TODO propagate error
+                    panic!("Failed to open required file");
+                }
+            };
+
             self.selected_files[i] = Some(path);
             self.get_core_handler()
                 .unwrap()
@@ -323,7 +360,6 @@ impl CoreManager {
             let start_time = Instant::now();
             let mut transfer_duration = Duration::ZERO;
             let mut handler_duration = Duration::ZERO;
-            let mut scratch = crate::bitstream::SCRATCH.take().expect("scratch buffer");
             let mut transferred = 0;
             // TODO: maybe only bother with background I/O for a large file (> 256KB?)
             crate::util::background_io::iter_chunks(file, &mut scratch, |chunk| {
