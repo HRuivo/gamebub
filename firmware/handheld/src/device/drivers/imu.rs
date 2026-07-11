@@ -77,7 +77,6 @@ where
     /// Enable the accelerometer.
     /// Currently hard-coded to 104Hz and +/- 4G range.
     pub fn enable_accel(&mut self) -> Result<(), Error> {
-        log::info!("enable accel");
         self.i2c
             .write(ADDRESS, &[REG_CTRL1_XL, 0x48])
             .map_err(|_| Error::I2cError)
@@ -85,7 +84,6 @@ where
 
     /// Disable the accelerometer.
     pub fn disable_accel(&mut self) -> Result<(), Error> {
-        log::info!("disable accel");
         self.i2c
             .write(ADDRESS, &[REG_CTRL1_XL, 0])
             .map_err(|_| Error::I2cError)
@@ -100,7 +98,6 @@ where
     /// Enable the gyroscope.
     /// Currently hard-coded to 104Hz and 1000 dps range.
     pub fn enable_gyro(&mut self) -> Result<(), Error> {
-        log::info!("enable gyro");
         self.i2c
             .write(ADDRESS, &[REG_CTRL2_G, 0x48])
             .map_err(|_| Error::I2cError)
@@ -108,7 +105,6 @@ where
 
     /// Disable the gyro.
     pub fn disable_gyro(&mut self) -> Result<(), Error> {
-        log::info!("disable gyro");
         self.i2c
             .write(ADDRESS, &[REG_CTRL2_G, 0])
             .map_err(|_| Error::I2cError)
