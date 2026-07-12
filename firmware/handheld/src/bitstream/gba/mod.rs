@@ -215,38 +215,6 @@ impl Gba {
 }
 
 impl Bitstream for Gba {
-    fn set_paused(&mut self, paused: bool) -> Result<(), fpga::Error> {
-        let mut device = Device::lock();
-
-        // Enable/disable IMU as needed
-        if !paused && self.emu_cart_config.as_ref().map_or(false, |h| h.has_gyro) {
-            device.imu.enable_gyro().unwrap();
-        } else {
-            device.imu.disable_gyro().unwrap();
-        }
-        if !paused && self.emu_cart_config.as_ref().map_or(false, |h| h.has_accel) {
-            device.imu.enable_accel().unwrap();
-        } else {
-            device.imu.disable_accel().unwrap();
-        }
-
-        device
-            .fpga
-            .write_u32(fpga::REG_CONTROL, 0b1010u32 | ((!paused) as u32))?;
-
-        if paused {
-            // Debug output stall stats
-            let num_cycles = device.fpga.read_u32(REG_STAT_CYCLES)?;
-            let num_stalls = device.fpga.read_u32(REG_STAT_STALLS)?;
-            device.fpga.write_u32(REG_STAT_CYCLES, 0)?;
-            device.fpga.write_u32(REG_STAT_STALLS, 0)?;
-            let rate = (num_cycles as f32) / ((num_cycles as f32) + (num_stalls as f32));
-            log::info!("Run rate: {}%", rate * 100.0);
-        }
-
-        Ok(())
-    }
-
     fn reset(&mut self) -> Result<(), fpga::Error> {
         let mut device = Device::lock();
         device.fpga.write_u32(fpga::REG_CONTROL, 0b0000)?;
@@ -454,6 +422,41 @@ impl CoreHandler for Gba {
             file.write(&rtc_state.to_disk()).unwrap();
             file.write(&(timestamp as u64).to_le_bytes()).unwrap();
             log::info!("Wrote RTC state: {:?}", rtc_state);
+        }
+    }
+
+    fn on_focus_changed(&mut self, has_focus: bool) {
+        let paused = !has_focus;
+        let mut device = Device::lock();
+
+        // Enable/disable IMU as needed
+        if self.emu_cart_config.as_ref().map_or(false, |h| h.has_gyro) {
+            if paused {
+                device.imu.disable_gyro().unwrap();
+            } else {
+                device.imu.enable_gyro().unwrap();
+            }
+        }
+        if self.emu_cart_config.as_ref().map_or(false, |h| h.has_accel) {
+            if paused {
+                device.imu.disable_accel().unwrap();
+            } else {
+                device.imu.enable_accel().unwrap();
+            }
+        }
+
+        let _ = device
+            .fpga
+            .write_u32(fpga::REG_CONTROL, 0b1010u32 | ((!paused) as u32));
+
+        if paused {
+            // Debug output stall stats
+            let num_cycles = device.fpga.read_u32(REG_STAT_CYCLES).unwrap();
+            let num_stalls = device.fpga.read_u32(REG_STAT_STALLS).unwrap();
+            let _ = device.fpga.write_u32(REG_STAT_CYCLES, 0);
+            let _ = device.fpga.write_u32(REG_STAT_STALLS, 0);
+            let rate = (num_cycles as f32) / ((num_cycles as f32) + (num_stalls as f32));
+            log::info!("Run rate: {}%", rate * 100.0);
         }
     }
 }

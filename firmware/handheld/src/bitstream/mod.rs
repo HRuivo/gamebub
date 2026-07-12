@@ -20,9 +20,6 @@ pub static SCRATCH: ScratchBuffer<{ 16 * 1024 }> = ScratchBuffer::new();
 
 /// Driver for a specific bitstream.
 pub trait Bitstream {
-    /// Set whether the inner design is paused.
-    fn set_paused(&mut self, paused: bool) -> Result<(), fpga::Error>;
-
     /// Reset the inner design, leaving it paused.
     fn reset(&mut self) -> Result<(), fpga::Error>;
 

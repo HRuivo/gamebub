@@ -69,6 +69,8 @@ pub trait CoreHandler {
         Ok(())
     }
 
+    fn on_focus_changed(&mut self, has_focus: bool);
+
     /// Called before saving a file, returns the size of the file.
     fn get_file_size(&mut self, id: u16) -> u32;
 
@@ -190,6 +192,10 @@ impl CoreManager {
 
         // And go back to the boot bitstream
         bitstream::program_boot();
+    }
+
+    pub fn focus_changed(&mut self, has_focus: bool) {
+        self.get_core_handler().unwrap().on_focus_changed(has_focus);
     }
 
     fn next_file_select(&mut self) {

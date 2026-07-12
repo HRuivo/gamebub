@@ -4,14 +4,14 @@ import { Button } from "../components/button.slint";
 import { ButtonList } from "../components/button_list.slint";
 
 export component GameScreen inherits ScreenBase {
-    private property <bool> paused: false;
+    private property <bool> menu-open: false;
     forward-focus: i-focus-scope;
 
-    protected function set-paused(paused: bool) {
-        Global.ui-status-bar = paused;
-        Backend.game-set-paused(paused);
-        self.paused = paused;
-        if (paused) {
+    protected function set-menu-open(open: bool) {
+        Global.ui-status-bar = open;
+        Backend.game-set-focused(!open);
+        self.menu-open = open;
+        if (menu-open) {
             i-list.focus();
         } else {
             i-focus-scope.focus();
@@ -21,16 +21,16 @@ export component GameScreen inherits ScreenBase {
     i-focus-scope := FocusScope {
         key-released(event) => {
             if (event.text == "Home" || event.text == "h") && !Global.home-consumed {
-                set-paused(!root.paused);
+                set-menu-open(!root.menu-open);
             }
             if (event.text == "Power") {
-                set-paused(true);
+                set-menu-open(true);
             }
             reject
         }
 
         menu := Rectangle {
-            visible: paused;
+            visible: menu-open;
             background: #FFF;
             border-color: black;
             border-width: 1px;
@@ -38,13 +38,13 @@ export component GameScreen inherits ScreenBase {
             height: i-list.min-height;
 
             i-list := ButtonList {
-                items: ["Resume", "Reset", "Main Menu"];
+                items: ["Return", "Reset", "Main Menu"];
                 on-selected(item) => {
                     if (item == 0) {
-                        root.set-paused(false);
+                        root.set-menu-open(false);
                     } else if (item == 1) {
                         Backend.game-reset();
-                        root.set-paused(false);
+                        root.set-menu-open(false);
                     } else if (item == 2) {
                         Backend.game-exit();
                     }

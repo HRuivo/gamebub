@@ -13,10 +13,8 @@ impl UiState {
         let root = self.root.unwrap();
         let backend = root.global::<Backend>();
 
-        backend.on_game_set_paused(move |paused| {
-            let mut manager = CoreManager::lock();
-            let bitstream = manager.current_bitstream().unwrap();
-            bitstream.set_paused(paused).unwrap();
+        backend.on_game_set_focused(move |focused| {
+            worker::send(worker::Message::CoreFocusChanged(focused));
         });
 
         backend.on_game_reset(move || {

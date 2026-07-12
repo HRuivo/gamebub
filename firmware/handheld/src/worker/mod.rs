@@ -44,6 +44,8 @@ pub enum Message {
     CoreFileSelected(PathBuf),
     /// Core file selection was cancelled.
     CoreFileCancelled,
+    /// Core focus changed
+    CoreFocusChanged(bool),
 }
 
 /// Send a message to the worker threads.
@@ -151,16 +153,11 @@ fn dispatch(message: Message) {
             }
             // TODO: Dim the screen temporarily.
         }
-        Message::RunCore(id) => {
-            CoreManager::lock().run_core(&id, false);
-        }
+        Message::RunCore(id) => CoreManager::lock().run_core(&id, false),
         Message::ExitCore => CoreManager::lock().exit_core(),
-        Message::CoreFileSelected(file) => {
-            CoreManager::lock().handle_file_selected(file);
-        }
-        Message::CoreFileCancelled => {
-            CoreManager::lock().cancel_file_select();
-        }
+        Message::CoreFileSelected(file) => CoreManager::lock().handle_file_selected(file),
+        Message::CoreFileCancelled => CoreManager::lock().cancel_file_select(),
+        Message::CoreFocusChanged(focused) => CoreManager::lock().focus_changed(focused),
         #[allow(unreachable_patterns)]
         _ => {
             log::warn!("Unhandled message: {:?}", message);
