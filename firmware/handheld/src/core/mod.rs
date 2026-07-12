@@ -8,9 +8,11 @@ use std::{
 };
 
 use esp_idf_svc::hal::units::Hertz;
+use thiserror::Error;
 
 use crate::{
     bitstream,
+    core::CoreError::*,
     device::{
         drivers::fpga::{SpiCommand, MAX_SPI_READ_CLOCK},
         Device,
@@ -42,6 +44,18 @@ enum Stage {
     Running,
 }
 
+#[derive(Debug, Error)]
+pub enum CoreError {
+    #[error("Missing path for file {0}")]
+    MissingRequiredFile(String),
+    #[error("Cannot open file {0}")]
+    CannotOpenFile(String),
+    #[error("Failed to load file {0}:\n{1}")]
+    FailedLoadFile(String, String),
+    #[error("Failed to save file {0}:\n{1}")]
+    FailedSaveFile(String, String),
+}
+
 /// Core-specific lifecycle callbacks.
 ///
 /// The main purpose is to add core-specific customizations for built-in cores
@@ -57,7 +71,7 @@ pub trait CoreHandler {
     fn get_file_path_override(&mut self, id: u16) -> Option<PathBuf>;
 
     /// Called before a file is loaded, for any additional stuff.
-    fn on_before_file_load(&mut self, _id: u16, _file: &mut File) {}
+    fn on_before_file_load(&mut self, id: u16, file: &mut File) -> Result<(), String>;
 
     /// Called for each chunk of a file loaded
     fn on_during_file_load(&mut self, _id: u16, _data: &[u8]) {}
@@ -65,9 +79,7 @@ pub trait CoreHandler {
     /// Called after a file is loaded, for any additional stuff.
     fn on_after_file_load(&mut self, _id: u16) {}
 
-    fn on_before_run(&mut self) -> Result<(), String> {
-        Ok(())
-    }
+    fn on_before_run(&mut self) -> Result<(), String>;
 
     fn on_focus_changed(&mut self, has_focus: bool);
 
@@ -75,7 +87,7 @@ pub trait CoreHandler {
     fn get_file_size(&mut self, id: u16) -> u32;
 
     /// Called after file is written, to write any additional data.
-    fn on_after_file_save(&mut self, id: u16, file: &mut File);
+    fn on_after_file_save(&mut self, id: u16, file: &mut File) -> Result<(), String>;
 
     /// Temporary: as Bitstream trait
     fn as_legacy_bitstream(&mut self) -> &mut dyn bitstream::Bitstream;
@@ -174,24 +186,31 @@ impl CoreManager {
 
     pub fn prepare_for_power_off(&mut self) {
         if self.stage == Stage::Running {
-            self.persist_files();
+            if let Err(e) = self.persist_files() {
+                log::error!("Error saving: {}", e);
+            }
         }
-        Device::lock().set_cart_power(false);
+        self.reset_state();
     }
 
     pub fn exit_core(&mut self) {
-        self.persist_files();
+        if let Err(e) = self.persist_files() {
+            log::error!("Error saving: {}", e);
+        }
 
-        // Cut cartridge power (if enabled)
-        Device::lock().set_cart_power(false);
+        self.reset_state();
 
+        // And go back to the boot bitstream
+        bitstream::program_boot();
+    }
+
+    fn reset_state(&mut self) {
         self.core_info = None;
         self.core_handler = CoreHandlerImpl::None;
         self.stage = Stage::Idle;
         self.selected_files.clear();
 
-        // And go back to the boot bitstream
-        bitstream::program_boot();
+        Device::lock().set_cart_power(false);
     }
 
     pub fn focus_changed(&mut self, has_focus: bool) {
@@ -244,7 +263,12 @@ impl CoreManager {
             device.set_cart_power(true);
         }
 
-        self.load_files();
+        if let Err(e) = self.load_files() {
+            self.reset_state();
+            bitstream::program_boot();
+            ui::send(ui::Message::CoreLoadError(e.to_string()));
+            return;
+        }
 
         // TODO: replace with generic loading sequence
 
@@ -256,8 +280,10 @@ impl CoreManager {
                 self.stage = Stage::Running;
             }
             Err(err) => {
+                self.reset_state();
                 bitstream::program_boot();
-                ui::send(ui::Message::RomSelectError(err))
+                ui::send(ui::Message::CoreLoadError(err.to_string()));
+                return;
             }
         }
     }
@@ -273,7 +299,7 @@ impl CoreManager {
         ui::send(ui::Message::EnterGame);
     }
 
-    fn load_files(&mut self) {
+    fn load_files(&mut self) -> Result<(), CoreError> {
         // TODO: Sum of size of files to load (rather than doing it file-by-file).
         let mut overall_transferred = 0u64;
         let mut overall_total = 0u64;
@@ -311,8 +337,7 @@ impl CoreManager {
 
             let Some(path) = path else {
                 if !info.optional {
-                    log::error!("No path for required file {i}");
-                    // TODO emit load error and exit
+                    return Err(MissingRequiredFile(info.label.to_string()));
                 }
                 // TODO: implement (optional) clear for empty file
                 continue;
@@ -350,15 +375,15 @@ impl CoreManager {
                     continue;
                 }
                 Err(_) => {
-                    // TODO propagate error
-                    panic!("Failed to open required file");
+                    return Err(CannotOpenFile(info.label.to_string()));
                 }
             };
 
             self.selected_files[i] = Some(path);
             self.get_core_handler()
                 .unwrap()
-                .on_before_file_load(info.id, &mut file);
+                .on_before_file_load(info.id, &mut file)
+                .map_err(|e| FailedLoadFile(info.label.to_string(), e))?;
             let file_size = file.metadata().unwrap().len();
             overall_total += file_size;
             // TODO check max size and exact size
@@ -368,7 +393,7 @@ impl CoreManager {
             let mut handler_duration = Duration::ZERO;
             let mut transferred = 0;
             // TODO: maybe only bother with background I/O for a large file (> 256KB?)
-            let read_dur = crate::util::background_io::iter_chunks(file, &mut scratch, |chunk| {
+            let result = crate::util::background_io::iter_chunks(file, &mut scratch, |chunk| {
                 let transfer_start = Instant::now();
                 let max_clock = Some(Hertz(info.max_transfer_speed * 1000 * 2));
                 let command = SpiCommand {
@@ -396,22 +421,26 @@ impl CoreManager {
                     ui::send(ui::Message::RomLoadingProgress(progress));
                     last_progress_update = Instant::now();
                 }
-            })
-            .expect("file load"); // TODO propagate error
+            });
+            let read_duration = result
+                .map_err(|_| FailedLoadFile(info.label.to_string(), "I/O error".to_string()))?;
+
             let duration = start_time.elapsed();
             self.get_core_handler().unwrap().on_after_file_load(info.id);
             log::info!(
                 "Loaded {} bytes in {} ms ({}/{}/{} ms read/transfer/handler)",
                 transferred,
                 duration.as_millis(),
-                read_dur.as_millis(),
+                read_duration.as_millis(),
                 transfer_duration.as_millis(),
                 handler_duration.as_millis(),
             );
         }
+
+        Ok(())
     }
 
-    fn persist_files(&mut self) {
+    fn persist_files(&mut self) -> Result<(), CoreError> {
         assert!(self.stage == Stage::Running);
         let core = self.core_info.unwrap();
         for (i, info) in core.files.iter().enumerate() {
@@ -426,7 +455,8 @@ impl CoreManager {
             log::info!("Saving file {} to {}", info.label, path.display());
             let size = self.get_core_handler().unwrap().get_file_size(info.id);
 
-            let mut file = File::create(path).expect("file create"); // TODO propagate error
+            let mut file = File::create(path)
+                .map_err(|_| FailedSaveFile(info.label.to_string(), "Open failed".to_string()))?;
             let mut scratch = crate::bitstream::SCRATCH.take().expect("scratch buffer");
             let buf = scratch.deref_mut();
             let mut address: u32 = info.address;
@@ -447,7 +477,9 @@ impl CoreManager {
                 let _ = Device::lock()
                     .fpga
                     .spi_read(max_clock, command, address, data);
-                file.write(data).expect("file write"); // TODO propagate error
+                file.write(data).map_err(|_| {
+                    FailedSaveFile(info.label.to_string(), "Write failed".to_string())
+                })?;
                 address += to_read as u32;
                 bytes_left -= to_read;
             }
@@ -459,8 +491,10 @@ impl CoreManager {
 
             self.get_core_handler()
                 .unwrap()
-                .on_after_file_save(info.id, &mut file);
+                .on_after_file_save(info.id, &mut file)
+                .map_err(|e| FailedSaveFile(info.label.to_string(), e))?;
         }
+        Ok(())
     }
 
     /// Called when a file has been selected for the core.

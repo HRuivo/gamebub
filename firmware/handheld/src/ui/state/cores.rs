@@ -10,7 +10,7 @@ use slint::{ComponentHandle, Model as _, ModelRc, SharedString, VecModel};
 
 use crate::{
     device::Device,
-    ui::slint::{CoreSubscreen, FileIcon},
+    ui::slint::{CoreSubscreen, FileIcon, ScreenId},
     worker,
 };
 
@@ -163,5 +163,13 @@ impl UiState {
         backend.set_core_file_select_is_loading(false);
         backend.set_core_file_select_error(error.into());
         self.cores_file_select_update_path();
+    }
+
+    pub fn cores_set_error(&mut self, error: String) {
+        let root = self.root.unwrap();
+        let backend = root.global::<Backend>();
+        backend.set_core_error(error.into());
+        backend.set_core_subscreen(CoreSubscreen::Error);
+        root.invoke_set_screen(ScreenId::Cores);
     }
 }

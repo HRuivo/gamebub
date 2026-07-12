@@ -76,6 +76,8 @@ pub enum Message {
     CoreFileSelectList(Vec<(String, bool)>),
     /// Core file select error
     CoreFileSelectError(String),
+    /// Core load error
+    CoreLoadError(String),
 }
 
 /// Send a message to the UI thread.
@@ -332,6 +334,9 @@ impl UI {
             }
             Message::CoreFileSelectError(error) => {
                 self.state.borrow_mut().cores_file_select_set_error(error);
+            }
+            Message::CoreLoadError(error) => {
+                self.state.borrow_mut().cores_set_error(error);
             }
             #[allow(unreachable_patterns)]
             _ => {

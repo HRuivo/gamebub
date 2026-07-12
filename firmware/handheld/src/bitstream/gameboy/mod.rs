@@ -226,23 +226,22 @@ impl CoreHandler for Gameboy {
         }
     }
 
-    fn on_before_file_load(&mut self, id: u16, file: &mut File) {
+    fn on_before_file_load(&mut self, id: u16, file: &mut File) -> Result<(), String> {
         if id == FILE_ROM {
-            // TODO: instead of unwrap, propagate errors
-            self.rom_file_size = file.metadata().unwrap().len() as u32;
+            self.rom_file_size = file.metadata().map_err(|_| "I/O")?.len() as u32;
             let mut rom_header = [0u8; 0x150];
-            file.read(&mut rom_header).unwrap();
-            let rom_header = rom::RomHeader::parse(rom_header).unwrap();
-            file.seek(std::io::SeekFrom::Start(0)).unwrap();
+            file.read(&mut rom_header).map_err(|_| "I/O")?;
+            let rom_header = rom::RomHeader::parse(rom_header).map_err(|e| e.to_string())?;
+            file.seek(std::io::SeekFrom::Start(0)).map_err(|_| "I/O")?;
             self.rom_header = Some(rom_header);
         } else if id == FILE_SAVE {
             let rom_header = self.rom_header.as_ref().unwrap();
             if rom_header.has_rtc {
                 // Read next 48 bytes for RTC data.
                 file.seek(std::io::SeekFrom::Start(rom_header.ram_size as u64))
-                    .unwrap();
+                    .map_err(|_| "I/O")?;
                 let mut buf = [0u8; 48];
-                let n = file.read(&mut buf).unwrap(); // TODO propagate
+                let n = file.read(&mut buf).map_err(|_| "I/O")?;
                 if n == 48 {
                     let mut rtc_state = rtc::RtcState::from_disk(&buf[0..20].try_into().unwrap());
                     let rtc_latched = rtc::RtcState::from_disk(&buf[20..40].try_into().unwrap());
@@ -260,9 +259,10 @@ impl CoreHandler for Gameboy {
                     );
                     self.rtc_state = Some((rtc_state, rtc_latched));
                 }
-                file.seek(std::io::SeekFrom::Start(0)).unwrap();
+                file.seek(std::io::SeekFrom::Start(0)).map_err(|_| "I/O")?;
             }
         }
+        Ok(())
     }
 
     fn on_before_run(&mut self) -> Result<(), String> {
@@ -321,7 +321,7 @@ impl CoreHandler for Gameboy {
         self.rom_header.as_ref().map_or(0, |h| h.ram_size)
     }
 
-    fn on_after_file_save(&mut self, id: u16, file: &mut File) {
+    fn on_after_file_save(&mut self, id: u16, file: &mut File) -> Result<(), String> {
         assert!(id == FILE_SAVE);
 
         // Save RTC
@@ -330,14 +330,14 @@ impl CoreHandler for Gameboy {
             let mut device = Device::lock();
             let rtc_state = RtcState::from_fpga(device.fpga.read_u32(REG_RTC_STATE).unwrap());
             let rtc_latched = RtcState::from_fpga(device.fpga.read_u32(REG_RTC_LATCHED).unwrap());
-            let timestamp = device.get_datetime().unix_timestamp();
+            let timestamp = device.get_datetime().unix_timestamp() as u64;
 
-            // TODO: return unwraps as errors
-            file.write(&rtc_state.to_disk()).unwrap();
-            file.write(&rtc_latched.to_disk()).unwrap();
-            file.write(&(timestamp as u64).to_le_bytes()).unwrap();
+            file.write(&rtc_state.to_disk()).map_err(|_| "I/O")?;
+            file.write(&rtc_latched.to_disk()).map_err(|_| "I/O")?;
+            file.write(&timestamp.to_le_bytes()).map_err(|_| "I/O")?;
             log::info!("Wrote RTC state: {:?}", rtc_state);
         }
+        Ok(())
     }
 
     fn on_focus_changed(&mut self, has_focus: bool) {

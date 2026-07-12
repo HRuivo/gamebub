@@ -112,11 +112,10 @@ impl UiState {
 
         let state_ = state.clone();
         backend.on_screen_enter(move |screen| {
-            let mut state = state_.borrow_mut();
             // Called when a new screen is entered, before the new frame is rendered.
             log::info!("Screen enter: {:?}", screen);
             match screen {
-                ScreenId::Settings => state.on_settings_enter(),
+                ScreenId::Settings => state_.borrow_mut().on_settings_enter(),
                 _ => {}
             }
         });
