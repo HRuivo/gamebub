@@ -12,7 +12,7 @@ use thiserror::Error;
 
 use crate::{
     bitstream,
-    core::CoreError::*,
+    core::{info::CoreFile, CoreError::*},
     device::{
         drivers::fpga::{SpiCommand, MAX_SPI_READ_CLOCK},
         Device,
@@ -46,8 +46,6 @@ enum Stage {
 
 #[derive(Debug, Error)]
 pub enum CoreError {
-    #[error("Missing path for file {0}")]
-    MissingRequiredFile(String),
     #[error("Cannot open file {0}")]
     CannotOpenFile(String),
     #[error("Failed to load file {0}:\n{1}")]
@@ -335,39 +333,20 @@ impl CoreManager {
                 .unwrap()
                 .get_file_path_override(info.id));
 
-            let Some(path) = path else {
-                if !info.optional {
-                    return Err(MissingRequiredFile(info.label.to_string()));
-                }
-                // TODO: implement (optional) clear for empty file
-                continue;
+            let path = match path {
+                Some(path) => path,
+                // Use an empty path. Open will fail and we'll clear it.
+                None if info.optional => PathBuf::new(),
+                // It shouldn't be possible to have no path for a required file.
+                None => panic!("Missing path for required file {}", info.label),
             };
 
             log::info!("Load file {} from {}", info.label, path.display());
             let mut file = match File::open(&path) {
                 Ok(file) => file,
                 Err(_) if info.optional && info.initialize => {
-                    let buf = scratch.deref_mut();
-                    buf.fill(0xFF);
-                    let mut pos = 0u32;
-                    let len = info.max_size.max(info.exact_size);
-                    while pos < len {
-                        let n = ((len - pos) as usize).min(buf.len());
-                        let max_clock = Some(Hertz(info.max_transfer_speed * 1000 * 2));
-                        let command = SpiCommand {
-                            word_size: info.transfer_word_size,
-                            byte_swap: true,
-                            increment_address: true,
-                        };
-                        let _ = Device::lock().fpga.spi_write(
-                            max_clock,
-                            command,
-                            info.address + pos,
-                            &buf[..n],
-                        );
-                        pos += n as u32;
-                    }
                     log::info!("Failed to open file, clearing");
+                    clear_file_slot(info, &mut scratch);
                     continue;
                 }
                 Err(_) if info.optional => {
@@ -568,5 +547,25 @@ impl CoreManager {
         });
         let files = files.into_iter().map(|f| (f.0, f.1.is_dir())).collect();
         Ok(files)
+    }
+}
+
+/// Clear a data slot to 0xFF
+fn clear_file_slot(info: &CoreFile, buf: &mut [u8]) {
+    buf.fill(0xFF);
+    let mut pos = 0u32;
+    let len = info.max_size.max(info.exact_size);
+    while pos < len {
+        let n = ((len - pos) as usize).min(buf.len());
+        let max_clock = Some(Hertz(info.max_transfer_speed * 1000 * 2));
+        let command = SpiCommand {
+            word_size: info.transfer_word_size,
+            byte_swap: true,
+            increment_address: true,
+        };
+        let _ = Device::lock()
+            .fpga
+            .spi_write(max_clock, command, info.address + pos, &buf[..n]);
+        pos += n as u32;
     }
 }
