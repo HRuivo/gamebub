@@ -72,7 +72,7 @@ class HandheldGameboy extends Module with HandheldModule {
   }
 
   val registerInterface = Wire(new MemoryInterface(addressWidth = 16, dataWidth = 32))
-  val biosInterface = Wire(new MemoryInterface(addressWidth = 11, dataWidth = 8)) // 2 KiB
+  val biosInterface = Wire(new MemoryInterface(addressWidth = 12, dataWidth = 8)) // 4 KiB
   val dmgPaletteInterface = Wire(new MemoryInterface(addressWidth = 5, dataWidth = 16))
   io.host.mem <> MemoryMap(
     addressWidth = 24,
@@ -385,13 +385,19 @@ class HandheldGameboy extends Module with HandheldModule {
   }
 
   // Boot ROM
-  val bios = SRAM(2048, UInt(8.W), numReadPorts = 1, numWritePorts = 1, numReadwritePorts = 0)
+  // The DMG one is 256 bytes, and starts at 0
+  // The CGB one is 2304 bytes (2048 with 256 bytes padding), starts at 256
+  val bios = SRAM(2048 + 256 + 256, UInt(8.W), numReadPorts = 1, numWritePorts = 1, numReadwritePorts = 0)
   bios.writePorts(0).enable := biosInterface.enable && biosInterface.write
   bios.writePorts(0).address := biosInterface.address
   bios.writePorts(0).data := biosInterface.dataWrite
   biosInterface.dataRead := 0.U
   biosInterface.done := RegNext(bios.writePorts(0).enable || bios.readPorts(0).enable)
   bios.readPorts(0).enable := gameboy.io.bootRom.read
-  bios.readPorts(0).address := gameboy.io.bootRom.address
+  when (gameboy.io.isCgb) {
+    bios.readPorts(0).address := gameboy.io.bootRom.address +& 256.U
+  } .otherwise {
+    bios.readPorts(0).address := gameboy.io.bootRom.address
+  }
   gameboy.io.bootRom.data := bios.readPorts(0).data
 }

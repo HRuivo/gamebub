@@ -48,7 +48,7 @@ class SimGameboy extends Module {
 
   // Boot ROM, to be filled in by verilator simulator
   val bootRom = {
-    val rom = SyncReadMem(2048, UInt(8.W))
+    val rom = SyncReadMem(2048 + 256, UInt(8.W))
     // dontTouch: hack to ensure Chisel doesn't optimize the mem out
     val temp = dontTouch(WireDefault(false.B))
     when (temp) {

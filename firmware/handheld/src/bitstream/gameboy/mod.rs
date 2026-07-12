@@ -1,7 +1,7 @@
 use esp_idf_svc::hal::units::Hertz;
 use std::{
     fs::File,
-    io::{Read, Seek, SeekFrom, Write},
+    io::{Read, Seek, Write},
     path::PathBuf,
 };
 use thiserror::Error;
@@ -36,12 +36,12 @@ const REG_IMU_ACCEL_Y: u32 = 0xE000_0024;
 const REG_DMG_PALETTE_OFF: u32 = 0xE000_0030;
 const REG_STAT_STALLS: u32 = 0xE000_1000;
 const REG_STAT_CYCLES: u32 = 0xE000_1004;
-const BIOS_ADDRESS_BASE: u32 = 0xE010_0000;
 const DMG_PALETTE_BASE: u32 = 0xE020_0000;
 
 const FILE_ROM: u16 = 0;
 const FILE_SAVE: u16 = 1;
-const FILE_BIOS: u16 = 2;
+const FILE_BIOS_CGB: u16 = 2;
+const FILE_BIOS_DMG: u16 = 3;
 
 #[derive(Debug, Error)]
 pub enum GameboyError {
@@ -51,8 +51,6 @@ pub enum GameboyError {
     IoError(#[from] std::io::Error),
     #[error("FPGA error")]
     FpgaError(#[from] crate::device::drivers::fpga::Error),
-    #[error("Invalid bootrom")]
-    InvalidBootrom,
 }
 
 /// Driver for Gameboy FPGA module
@@ -76,63 +74,6 @@ impl Gameboy {
             ram_path: None,
             rtc_state: None,
         }
-    }
-
-    fn get_bootrom_path() -> &'static str {
-        let is_dmg = kvs::keys::GB_IS_DMG.get().unwrap();
-        let skip = kvs::keys::GB_SKIP_BOOT_ANIM.get().unwrap();
-
-        if is_dmg {
-            if skip {
-                "gameboy.bios-dmg-fast.bin"
-            } else {
-                "gameboy.bios-dmg.bin"
-            }
-        } else {
-            if skip {
-                "gameboy.bios-cgb-fast.bin"
-            } else {
-                "gameboy.bios-cgb.bin"
-            }
-        }
-    }
-
-    fn load_bootrom(&mut self, device: &mut Device) -> Result<(), GameboyError> {
-        let bios_path = Self::get_bootrom_path();
-        log::info!("Loading CGB bootrom");
-        let mut bios_file = crate::util::open_system_file(bios_path)?;
-        let mut scratch = super::SCRATCH.take().expect("scratch buffer");
-        let mut buf = &mut scratch[..2048];
-
-        let file_len = bios_file.metadata()?.len();
-        if file_len == 2048 || file_len == 256 {
-            bios_file.read(&mut buf)?;
-        } else if file_len == (2048 + 256) {
-            // Assume this is a bootrom with 256 bytes of padding at offset 256.
-            log::warn!("Removing CGB bootrom padding");
-            bios_file.read(&mut buf[0..256])?;
-            bios_file.seek(SeekFrom::Current(256))?;
-            bios_file.read(&mut buf[256..])?;
-        } else {
-            log::error!("Bootrom invalid length: {}", file_len);
-            return Err(GameboyError::InvalidBootrom);
-        }
-
-        let address = BIOS_ADDRESS_BASE;
-        let command = fpga::SpiCommand {
-            word_size: fpga::FpgaSpiWordSize::Bits8,
-            byte_swap: true,
-            increment_address: true,
-        };
-        // 8 bits per transfer, 2 clocks each.
-        // This would be ~8 MHz. However, since it's such a short transfer, we can do a slightly
-        // higher rate and let the SPI FIFO buffer it.
-        let max_clock = Hertz(10_000_000);
-        device
-            .fpga
-            .spi_write(Some(max_clock), command, address, &buf)?;
-
-        Ok(())
     }
 
     /// Prepare to load a new cartridge (physical or emulated)
@@ -171,10 +112,6 @@ impl Gameboy {
                 .unwrap_or(&dmg_palette::PALETTES[0]);
             palette.load(device)?;
         }
-
-        // Bootrom
-        // TODO: do this as part of file load
-        self.load_bootrom(device)?;
 
         Ok(())
     }
@@ -219,10 +156,10 @@ impl CoreHandler for Gameboy {
     }
 
     fn get_file_path_override(&mut self, id: u16) -> Option<PathBuf> {
-        if id == FILE_BIOS {
-            Some(crate::util::get_system_file_path(Self::get_bootrom_path()))
-        } else {
-            None
+        match id {
+            FILE_BIOS_CGB => Some(crate::util::get_system_file_path("gameboy.bios-cgb.bin")),
+            FILE_BIOS_DMG => Some(crate::util::get_system_file_path("gameboy.bios-dmg.bin")),
+            _ => None,
         }
     }
 

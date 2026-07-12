@@ -89,7 +89,25 @@ static CORES: &[CoreInfo] = &[
             },
             CoreFile {
                 id: 2,
-                label: "BIOS",
+                label: "BIOS CGB",
+                extensions: &[".bin"],
+                asset_path: None, // TODO
+
+                optional: false,
+                read_only: true,
+                user_selected: false,
+                dependent_on_0: false,
+                initialize: false,
+
+                address: 0xE010_0000 + 256,
+                max_size: 0,
+                exact_size: 2048 + 256,
+                max_transfer_speed: 5_000, // 5 MB/s
+                transfer_word_size: fpga::FpgaSpiWordSize::Bits8,
+            },
+            CoreFile {
+                id: 3,
+                label: "BIOS DMG",
                 extensions: &[".bin"],
                 asset_path: None, // TODO
 
@@ -100,8 +118,8 @@ static CORES: &[CoreInfo] = &[
                 initialize: false,
 
                 address: 0xE010_0000,
-                max_size: 2048 + 256,
-                exact_size: 0,
+                max_size: 0,
+                exact_size: 256,
                 max_transfer_speed: 5_000, // 5 MB/s
                 transfer_word_size: fpga::FpgaSpiWordSize::Bits8,
             },
