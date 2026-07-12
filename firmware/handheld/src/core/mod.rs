@@ -1,11 +1,26 @@
 use std::{
+    fs::File,
+    io::Write,
+    ops::DerefMut as _,
     path::{Path, PathBuf},
     sync::{LazyLock, Mutex, MutexGuard},
+    time::{Duration, Instant},
 };
 
-use crate::{bitstream, device::Device, ui};
+use esp_idf_svc::hal::units::Hertz;
+
+use crate::{
+    bitstream,
+    device::{
+        drivers::fpga::{SpiCommand, MAX_SPI_READ_CLOCK},
+        Device,
+    },
+    ui,
+};
 
 mod info;
+
+const PROGRESS_UPDATE_INTERVAL: Duration = Duration::from_millis(250);
 
 static CORE_MANAGER: LazyLock<Mutex<CoreManager>> =
     LazyLock::new(|| Mutex::new(CoreManager::new()));
@@ -38,11 +53,27 @@ pub trait CoreHandler {
     /// Called after the bitstream is programmed.
     fn on_after_program(&mut self);
 
-    /// Temporary: Run Cartridge
-    fn start_physical_cartridge(&mut self) -> Result<(), String>;
+    /// Called before loading a file, returns the path override.
+    fn get_file_path_override(&mut self, id: u16) -> Option<PathBuf>;
 
-    /// Temporary: Run Rom
-    fn start_emulated_cartridge(&mut self, rom: &Path) -> Result<(), String>;
+    /// Called before a file is loaded, for any additional stuff.
+    fn on_before_file_load(&mut self, _id: u16, _file: &mut File) {}
+
+    /// Called for each chunk of a file loaded
+    fn on_during_file_load(&mut self, _id: u16, _data: &[u8]) {}
+
+    /// Called after a file is loaded, for any additional stuff.
+    fn on_after_file_load(&mut self, _id: u16) {}
+
+    fn on_before_run(&mut self) -> Result<(), String> {
+        Ok(())
+    }
+
+    /// Called before saving a file, returns the size of the file.
+    fn get_file_size(&mut self, id: u16) -> u32;
+
+    /// Called after file is written, to write any additional data.
+    fn on_after_file_save(&mut self, id: u16, file: &mut File);
 
     /// Temporary: as Bitstream trait
     fn as_legacy_bitstream(&mut self) -> &mut dyn bitstream::Bitstream;
@@ -140,7 +171,7 @@ impl CoreManager {
     }
 
     pub fn exit_core(&mut self) {
-        // TODO persist files
+        self.persist_files();
 
         self.core_info = None;
         self.core_handler = CoreHandlerImpl::None;
@@ -165,7 +196,7 @@ impl CoreManager {
             if index >= core.files.len() {
                 log::info!("File selection complete");
                 self.stage = Stage::LoadBitstream;
-                self.load_bitstream();
+                self.finish_loading();
                 return;
             }
             self.stage = Stage::LoadSelectFile(index);
@@ -174,6 +205,7 @@ impl CoreManager {
                 continue;
             }
             if self.run_cartridge && (file.id == 0 || file.dependent_on_0) {
+                // TODO: validate and make sure there's a file 0
                 continue;
             }
             break index;
@@ -190,32 +222,19 @@ impl CoreManager {
         self.send_core_file_list(path);
     }
 
-    fn load_bitstream(&mut self) {
-        assert!(self.stage == Stage::LoadBitstream);
+    fn finish_loading(&mut self) {
+        self.load_bitstream();
 
-        let bitstream_path = self.get_core_handler().unwrap().get_bitstream_path();
-        bitstream::program_fpga(&bitstream_path);
-        self.get_core_handler().unwrap().on_after_program();
-
-        // Enable cartridge power after the bitstream is loaded.
         if self.run_cartridge {
             let mut device = Device::lock();
             device.set_cart_power(true);
         }
 
-        // TODO: enter core loading screen
-        ui::send(ui::Message::EnterGame);
+        self.load_files();
 
         // TODO: replace with generic loading sequence
-        let result = if self.run_cartridge {
-            self.get_core_handler().unwrap().start_physical_cartridge()
-        } else {
-            let rom_path = self.selected_files[0].take().unwrap();
-            self.get_core_handler()
-                .unwrap()
-                .start_emulated_cartridge(rom_path.as_path())
-        };
 
+        let result = self.get_core_handler().unwrap().on_before_run();
         match result {
             Ok(()) => {
                 // Clear loading bar
@@ -226,6 +245,170 @@ impl CoreManager {
                 bitstream::program_boot();
                 ui::send(ui::Message::RomSelectError(err))
             }
+        }
+    }
+
+    fn load_bitstream(&mut self) {
+        assert!(self.stage == Stage::LoadBitstream);
+
+        let bitstream_path = self.get_core_handler().unwrap().get_bitstream_path();
+        bitstream::program_fpga(&bitstream_path);
+        self.get_core_handler().unwrap().on_after_program();
+
+        // TODO: enter core loading screen
+        ui::send(ui::Message::EnterGame);
+    }
+
+    fn load_files(&mut self) {
+        // TODO: Sum of size of files to load (rather than doing it file-by-file).
+        let mut overall_transferred = 0u64;
+        let mut overall_total = 0u64;
+        let mut last_progress_update = Instant::now();
+
+        let core = self.core_info.unwrap();
+        let file_0_index = core.files.iter().position(|f| f.id == 0);
+        for (i, info) in core.files.iter().enumerate() {
+            if self.run_cartridge && (info.id == 0 || info.dependent_on_0) {
+                continue;
+            }
+
+            // Get the file path
+            let mut path = self.selected_files[i].clone();
+
+            // TODO if asset path is not none, construct path based on that
+
+            if info.dependent_on_0 {
+                // Construct a new path based on file 0's path
+                assert!(path.is_none());
+                let extension = &info.extensions[0][1..]; // Remove the dot
+                let file_0_index = file_0_index.unwrap();
+                path = self.selected_files[file_0_index]
+                    .as_ref()
+                    .map(|p| p.with_extension(extension));
+            }
+
+            // Possibly override the path
+            path = path.or(self
+                .get_core_handler()
+                .unwrap()
+                .get_file_path_override(info.id));
+
+            let Some(path) = path else {
+                if !info.optional {
+                    log::error!("No path for required file {i}");
+                    // TODO emit load error and exit
+                }
+                // TODO: implement (optional) clear for empty file
+                continue;
+            };
+
+            log::info!("Load file {} from {}", info.label, path.display());
+            let mut file = File::open(&path).expect("file open"); // TODO propagate error
+            self.selected_files[i] = Some(path);
+            self.get_core_handler()
+                .unwrap()
+                .on_before_file_load(info.id, &mut file);
+            let file_size = file.metadata().unwrap().len();
+            overall_total += file_size;
+            // TODO check max size and exact size
+
+            let start_time = Instant::now();
+            let mut transfer_duration = Duration::ZERO;
+            let mut handler_duration = Duration::ZERO;
+            let mut scratch = crate::bitstream::SCRATCH.take().expect("scratch buffer");
+            let mut transferred = 0;
+            // TODO: maybe only bother with background I/O for a large file (> 256KB?)
+            crate::util::background_io::iter_chunks(file, &mut scratch, |chunk| {
+                let transfer_start = Instant::now();
+                let max_clock = Some(Hertz(info.max_transfer_speed * 1000 * 2));
+                let command = SpiCommand {
+                    word_size: info.transfer_word_size,
+                    byte_swap: true,
+                    increment_address: true,
+                };
+                Device::lock()
+                    .fpga
+                    .spi_write(max_clock, command, info.address + transferred, chunk)
+                    .unwrap();
+                transferred += chunk.len() as u32;
+                overall_transferred += chunk.len() as u64;
+                transfer_duration += transfer_start.elapsed();
+
+                let handler_start = Instant::now();
+                self.get_core_handler()
+                    .unwrap()
+                    .on_during_file_load(info.id, chunk);
+                handler_duration += handler_start.elapsed();
+
+                // Update UI progress bar.
+                if last_progress_update.elapsed() > PROGRESS_UPDATE_INTERVAL {
+                    let progress = (overall_transferred as f32) / (overall_total as f32);
+                    ui::send(ui::Message::RomLoadingProgress(progress));
+                    last_progress_update = Instant::now();
+                }
+            })
+            .expect("file load"); // TODO propagate error
+            let duration = start_time.elapsed();
+            self.get_core_handler().unwrap().on_after_file_load(info.id);
+            log::info!(
+                "Loaded {} bytes in {} ms ({}/{} ms transfer/handler)",
+                transferred,
+                duration.as_millis(),
+                transfer_duration.as_millis(),
+                handler_duration.as_millis(),
+            );
+        }
+    }
+
+    fn persist_files(&mut self) {
+        assert!(self.stage == Stage::Running);
+        let core = self.core_info.unwrap();
+        for (i, info) in core.files.iter().enumerate() {
+            if info.read_only {
+                continue;
+            }
+            if self.run_cartridge && (info.id == 0 || info.dependent_on_0) {
+                continue;
+            }
+
+            let path = self.selected_files[i].clone().unwrap();
+            log::info!("Saving file {} to {}", info.label, path.display());
+            let size = self.get_core_handler().unwrap().get_file_size(info.id);
+
+            let mut file = File::create(path).expect("file create"); // TODO propagate error
+            let mut scratch = crate::bitstream::SCRATCH.take().expect("scratch buffer");
+            let buf = scratch.deref_mut();
+            let mut address: u32 = info.address;
+            let mut bytes_left = size as usize;
+
+            let start_time = Instant::now();
+            while bytes_left > 0 {
+                let to_read = bytes_left.min(buf.len());
+                let data = &mut buf[0..to_read];
+
+                let max_clock =
+                    Some(Hertz(info.max_transfer_speed * 1000 * 2).min(MAX_SPI_READ_CLOCK));
+                let command = SpiCommand {
+                    word_size: info.transfer_word_size,
+                    byte_swap: true,
+                    increment_address: true,
+                };
+                let _ = Device::lock()
+                    .fpga
+                    .spi_read(max_clock, command, address, data);
+                file.write(data).expect("file write"); // TODO propagate error
+                address += to_read as u32;
+                bytes_left -= to_read;
+            }
+            log::info!(
+                "Saved {} bytes in {}ms",
+                size,
+                start_time.elapsed().as_millis() as u32
+            );
+
+            self.get_core_handler()
+                .unwrap()
+                .on_after_file_save(info.id, &mut file);
         }
     }
 

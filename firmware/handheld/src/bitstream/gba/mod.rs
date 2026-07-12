@@ -2,8 +2,7 @@ use std::{
     fmt::{Debug, Display},
     fs::File,
     io::{Read, Seek, Write},
-    path::{Path, PathBuf},
-    time::{Duration, Instant},
+    path::PathBuf,
 };
 
 use esp_idf_svc::hal::units::Hertz;
@@ -13,7 +12,7 @@ use thiserror::Error;
 use crate::{
     core::CoreHandler,
     device::{drivers::fpga, Device},
-    kvs, ui,
+    kvs,
 };
 
 use super::{
@@ -28,7 +27,6 @@ mod save_type_detector;
 
 const SYSTEM_CLOCK_RATE: Hertz = Hertz(16 * 1024 * 1024);
 const ROM_HEADER_LENGTH: usize = 192;
-const PROGRESS_UPDATE_INTERVAL: Duration = Duration::from_millis(250);
 
 const REG_EMU_CART_CONFIG: u32 = 0xE000_0000;
 const REG_EMU_CART_ROM_SIZE: u32 = 0xE000_0004;
@@ -40,6 +38,10 @@ const REG_RTC_LO: u32 = 0xE000_0200;
 const REG_RTC_HI: u32 = 0xE000_0204;
 const REG_STAT_STALLS: u32 = 0xE000_1000;
 const REG_STAT_CYCLES: u32 = 0xE000_1004;
+
+const FILE_ROM: u16 = 0;
+const FILE_SAVE: u16 = 1;
+const FILE_BIOS: u16 = 2;
 
 #[derive(Debug, Error)]
 pub enum GbaError {
@@ -151,23 +153,24 @@ impl Display for RomHeader {
 
 /// Driver for GBA FPGA module
 pub struct Gba {
-    /// Path to the save file, if this is an emulated cartridge.
-    save_path: Option<PathBuf>,
-    /// Size of the save, if this is an emulated cartridge.
-    save_size: u32,
     /// Emulated cartridge config.
     emu_cart_config: Option<EmulatedCartridgeConfig>,
-    /// Loaded bios path
-    bios_path: Option<&'static str>,
+
+    rom_header: Option<RomHeader>,
+    rom_file_size: u32,
+    save_type_detector: SaveTypeDetector,
+    rtc_state: Option<RtcState>,
 }
 
 impl Gba {
     pub fn new() -> Self {
         Gba {
-            save_path: None,
-            save_size: 0,
             emu_cart_config: None,
-            bios_path: None,
+
+            rom_header: None,
+            rom_file_size: 0,
+            save_type_detector: SaveTypeDetector::new(),
+            rtc_state: None,
         }
     }
 
@@ -179,36 +182,6 @@ impl Gba {
         }
     }
 
-    fn load_bios(&mut self, device: &mut Device) -> Result<(), GbaError> {
-        let bios_path = Self::get_bios_path();
-        if self.bios_path == Some(bios_path) {
-            return Ok(());
-        }
-
-        let mut bios_file = crate::util::open_system_file(bios_path)?;
-        let file_len = bios_file.metadata()?.len();
-        if file_len != 16 * 1024 {
-            log::warn!("Bios unexpected length: {}", file_len);
-        }
-        let mut scratch = super::SCRATCH.take().expect("scratch buffer");
-        bios_file.read(&mut scratch)?;
-
-        let address = 0xE010_0000;
-        let command = fpga::SpiCommand {
-            word_size: fpga::FpgaSpiWordSize::Bits32,
-            byte_swap: true,
-            increment_address: true,
-        };
-        // 32 bits per transfer, 2 clocks each.
-        let max_clock = SYSTEM_CLOCK_RATE * 32 / (4 * 2);
-        device
-            .fpga
-            .spi_write(Some(max_clock), command, address, &scratch)?;
-
-        self.bios_path = Some(bios_path);
-        Ok(())
-    }
-
     /// Prepare to load a new cartridge (physical or emulated)
     fn initialize(&mut self, device: &mut Device) -> Result<(), GbaError> {
         // Hold in reset
@@ -217,7 +190,7 @@ impl Gba {
         device.imu.disable_accel().unwrap();
 
         // Load bios if needed
-        self.load_bios(device)?;
+        // self.load_bios(device)?;
 
         // Other config
         device.fpga.write_u32(
@@ -235,236 +208,9 @@ impl Gba {
             let setting = kvs::keys::GBA_COLOR_PROFILE.get().unwrap() as usize;
             corrections.get(setting).unwrap_or(&&IDENTITY)
         };
-        // TODO: only configure if it has changed
         correction.configure(device)?;
 
         Ok(())
-    }
-
-    pub fn set_physical_cartridge(&mut self) -> Result<(), GbaError> {
-        let mut device = Device::lock();
-        self.initialize(&mut device)?;
-
-        // Switch to physical cartridge.
-        device
-            .fpga
-            .write_u32(REG_EMU_CART_CONFIG, EmulatedCartridgeConfig::DISABLED)?;
-
-        // Resume
-        device.fpga.write_u32(fpga::REG_CONTROL, 0b1011)?;
-
-        self.save_path = None;
-        self.emu_cart_config = None;
-        Ok(())
-    }
-
-    pub fn set_emulated_cartridge(&mut self, rom_path: &Path) -> Result<(), GbaError> {
-        {
-            let mut device = Device::lock();
-            self.initialize(&mut device)?;
-        }
-
-        // Load ROM
-        let mut rom_file = File::open(rom_path)?;
-        let rom_file_size = rom_file.metadata()?.len() as u32;
-        let mut rom_header = [0u8; ROM_HEADER_LENGTH];
-        rom_file.read(&mut rom_header)?;
-        rom_file.seek(std::io::SeekFrom::Start(0))?;
-        let rom_header = RomHeader::parse(rom_header);
-        log::info!("Loading rom: {}", rom_header);
-
-        let mut save_type_detector = SaveTypeDetector::new();
-        let emu_cart_config = game_db::lookup(&rom_header.game_code);
-
-        let mut scratch = super::SCRATCH.take().expect("scratch buffer");
-        let mut total = 0u32;
-        let mut last_progress_update = Instant::now();
-        let start_time = Instant::now();
-        let mut transfer_duration = Duration::ZERO;
-        let mut detect_duration = Duration::ZERO;
-        crate::util::background_io::iter_chunks(rom_file, &mut scratch, |chunk| {
-            let transfer_start = Instant::now();
-            Device::lock().fpga.sdram_write(total, &chunk).unwrap();
-            total += chunk.len() as u32;
-            transfer_duration += transfer_start.elapsed();
-
-            // Update UI progress bar.
-            if last_progress_update.elapsed() > PROGRESS_UPDATE_INTERVAL {
-                let progress = (total as f32) / (rom_file_size as f32);
-                ui::send(ui::Message::RomLoadingProgress(progress));
-                last_progress_update = Instant::now();
-            }
-
-            let detect_start = Instant::now();
-            if emu_cart_config.is_none() {
-                save_type_detector.process(&chunk);
-            }
-            detect_duration += detect_start.elapsed();
-        })?;
-        ui::send(ui::Message::RomLoadingProgress(1.0));
-        drop(scratch);
-        let duration = start_time.elapsed();
-        log::info!(
-            "Loaded ROM: {} bytes in {} ms ({}/{} ms transfer/detect)",
-            total,
-            duration.as_millis(),
-            transfer_duration.as_millis(),
-            detect_duration.as_millis(),
-        );
-        let rom_size = total;
-        // TODO clear up to the next power of two
-
-        match emu_cart_config {
-            Some(config) => log::info!("Using save config: {:?}", config.save_type),
-            None => log::info!("Detected save type: {:?}", save_type_detector.get()),
-        }
-        let emu_cart_config = emu_cart_config
-            .unwrap_or_else(|| EmulatedCartridgeConfig::from_save_type(save_type_detector.get()));
-
-        // Load save
-        let save_type = emu_cart_config.save_type;
-        let save_size = save_type.get_size() as u32;
-        let save_path = rom_path.with_extension("sav");
-        let _ = crate::util::copy_file(&save_path, &save_path.with_extension("sav.bak"));
-        let mut rtc_state: Option<RtcState> = None;
-        let mut scratch = super::SCRATCH.take().expect("scratch buffer");
-        let buf = &mut scratch;
-        if let Ok(mut save_file) = File::open(save_path.as_path()) {
-            log::info!("Loading save file");
-
-            let mut pos = 0u32;
-            while pos < save_size {
-                let to_read = ((save_size - pos) as usize).min(buf.len());
-                let n = save_file.read(&mut buf[..to_read])?;
-                if n == 0 {
-                    break;
-                }
-                Device::lock().fpga.sram_write(pos, &buf[..n])?;
-                pos += n as u32;
-            }
-
-            if emu_cart_config.has_rtc {
-                // Read next 16 bytes for RTC data.
-                let n = save_file.read(&mut buf[..16])?;
-                if n == 16 {
-                    let prev_state = RtcState::from_disk(buf[0..8].try_into().unwrap());
-                    let rtc_timestamp = u64::from_le_bytes(buf[8..16].try_into().unwrap());
-                    let elapsed = Device::lock()
-                        .get_datetime()
-                        .unix_timestamp()
-                        .saturating_sub_unsigned(rtc_timestamp);
-
-                    match prev_state.to_offset_date_time() {
-                        Ok(time) => {
-                            let datetime = time.saturating_add(time::Duration::seconds(elapsed));
-                            let new_state = RtcState::from_offset_date_time(datetime);
-                            log::info!(
-                                "Loaded saved RTC state: {:?}, elapsed={}",
-                                new_state,
-                                elapsed
-                            );
-                            rtc_state = Some(new_state);
-                        }
-                        Err(_) => {
-                            log::warn!("Saved RTC state invalid");
-                        }
-                    }
-                }
-            }
-        } else {
-            // No save file to load, clear the save region.
-            log::info!("No save file to load");
-            buf.fill(0xFF);
-            let mut pos = 0u32;
-            while pos < save_size {
-                let n = ((save_size - pos) as usize).min(buf.len());
-                Device::lock().fpga.sram_write(pos, &buf[..n])?;
-                pos += n as u32;
-            }
-        }
-
-        // Time-intensive ROM loading is complete, so re-acquire Device lock.
-        let mut device = Device::lock();
-
-        // Configure emulated cartridge control registers
-        device
-            .fpga
-            .write_u32(REG_EMU_CART_CONFIG, emu_cart_config.as_config_u32())?;
-        device.fpga.write_u32(REG_EMU_CART_ROM_SIZE, rom_size - 1)?;
-
-        // Update RTC state
-        let rtc_state = match rtc_state {
-            Some(state) => state,
-            None => {
-                let datetime = device.get_datetime();
-                RtcState::from_offset_date_time(datetime)
-            }
-        };
-        let (rtc_lo, rtc_hi) = rtc_state.to_fpga();
-        device.fpga.write_u32(REG_RTC_LO, rtc_lo)?;
-        device.fpga.write_u32(REG_RTC_HI, rtc_hi)?;
-
-        // If IMU is needed, enable vsync IRQ
-        let mut need_vblank = false;
-        if emu_cart_config.has_gyro {
-            device.imu.enable_gyro().unwrap();
-            need_vblank = true;
-        }
-        if emu_cart_config.has_accel {
-            device.imu.enable_accel().unwrap();
-            need_vblank = true;
-        }
-        if need_vblank {
-            device.fpga.enable_interrupt(fpga::Irq::ModuleVblank)?;
-        }
-
-        // Resume
-        device.fpga.write_u32(fpga::REG_CONTROL, 0b1011)?;
-
-        self.save_path = Some(save_path);
-        self.save_size = save_size;
-        self.emu_cart_config = Some(emu_cart_config);
-        Ok(())
-    }
-
-    pub fn persist_save(&mut self) -> Result<(), GbaError> {
-        let save_path = match self.save_path.as_ref() {
-            Some(save_path) => save_path,
-            None => return Ok(()),
-        };
-
-        log::info!("Saving to: {}", save_path.display());
-
-        let mut file = File::create(save_path)?;
-        let mut scratch = super::SCRATCH.take().expect("scratch buffer");
-        let mut address: u32 = 0;
-        let mut bytes_left = self.save_size as usize;
-
-        let mut device = Device::lock();
-        while bytes_left > 0 {
-            let to_read = bytes_left.min(scratch.len());
-            let data = &mut scratch[0..to_read];
-            device.fpga.sram_read(address, data)?;
-            file.write(data)?;
-            address += to_read as u32;
-            bytes_left -= to_read;
-        }
-
-        if self.emu_cart_config.as_ref().map_or(false, |e| e.has_rtc) {
-            let rtc_lo = device.fpga.read_u32(REG_RTC_LO)?;
-            let rtc_hi = device.fpga.read_u32(REG_RTC_HI)?;
-            let rtc_state = RtcState::from_fpga(rtc_lo, rtc_hi);
-            file.write(&rtc_state.to_disk())?;
-            file.write(&(device.get_datetime().unix_timestamp() as u64).to_le_bytes())?;
-            log::info!("Wrote RTC state: {:?}", rtc_state);
-        }
-
-        Ok(())
-    }
-
-    /// Return whether the current save game would need to be persisted to disk.
-    pub fn needs_save_persist(&self) -> bool {
-        self.save_path.is_some()
     }
 }
 
@@ -524,7 +270,6 @@ impl Bitstream for Gba {
         let has_accel = self.emu_cart_config.as_ref().map_or(false, |h| h.has_accel);
         if has_accel {
             let accel_sample = device.imu.read_accel().unwrap();
-            // TODO: determine X and Y inversion
             let accel_x = ((0x3A0 as f32) + ((0x1D0 as f32) * -accel_sample.x)) as u16;
             let accel_y = ((0x3A0 as f32) + ((0x1D0 as f32) * -accel_sample.y)) as u16;
             device
@@ -537,27 +282,11 @@ impl Bitstream for Gba {
                 .unwrap();
         }
     }
-
-    fn needs_save_persist(&self) -> bool {
-        self.needs_save_persist()
-    }
-
-    fn persist_save(&mut self) -> Result<(), String> {
-        self.persist_save().map_err(|e| e.to_string())
-    }
 }
 
 impl CoreHandler for Gba {
     fn get_bitstream_path(&self) -> PathBuf {
         crate::util::get_system_file_path("gba.bit.hs")
-    }
-
-    fn start_physical_cartridge(&mut self) -> Result<(), String> {
-        self.set_physical_cartridge().map_err(|e| e.to_string())
-    }
-
-    fn start_emulated_cartridge(&mut self, rom: &Path) -> Result<(), String> {
-        self.set_emulated_cartridge(rom).map_err(|e| e.to_string())
     }
 
     fn as_legacy_bitstream(&mut self) -> &mut dyn super::Bitstream {
@@ -566,5 +295,165 @@ impl CoreHandler for Gba {
 
     fn on_after_program(&mut self) {
         Device::lock().fpga.set_system_clock_rate(SYSTEM_CLOCK_RATE);
+    }
+
+    fn get_file_path_override(&mut self, id: u16) -> Option<PathBuf> {
+        if id == FILE_BIOS {
+            Some(crate::util::get_system_file_path(Self::get_bios_path()))
+        } else {
+            None
+        }
+    }
+
+    fn on_before_file_load(&mut self, id: u16, file: &mut File) {
+        if id == FILE_ROM {
+            // TODO: instead of unwrap, propagate these errors
+            self.rom_file_size = file.metadata().unwrap().len() as u32;
+            let mut rom_header = [0u8; ROM_HEADER_LENGTH];
+            file.read(&mut rom_header).unwrap();
+            file.seek(std::io::SeekFrom::Start(0)).unwrap();
+            let rom_header = RomHeader::parse(rom_header);
+            self.emu_cart_config = game_db::lookup(&rom_header.game_code);
+            self.rom_header = Some(rom_header);
+        } else if id == FILE_SAVE {
+            let emu_cart_config = self.emu_cart_config.as_ref().unwrap();
+            if emu_cart_config.has_rtc {
+                let save_size = emu_cart_config.save_type.get_size();
+                file.seek(std::io::SeekFrom::Start(save_size as u64))
+                    .unwrap();
+                let mut buf = [0u8; 16];
+                let n = file.read(&mut buf).unwrap(); // TODO propagate
+                if n == 16 {
+                    let prev_state = RtcState::from_disk(buf[0..8].try_into().unwrap());
+                    let rtc_timestamp = u64::from_le_bytes(buf[8..16].try_into().unwrap());
+                    let elapsed = Device::lock()
+                        .get_datetime()
+                        .unix_timestamp()
+                        .saturating_sub_unsigned(rtc_timestamp);
+
+                    match prev_state.to_offset_date_time() {
+                        Ok(time) => {
+                            let datetime = time.saturating_add(time::Duration::seconds(elapsed));
+                            let new_state = RtcState::from_offset_date_time(datetime);
+                            log::info!(
+                                "Loaded saved RTC state: {:?}, elapsed={}",
+                                new_state,
+                                elapsed
+                            );
+                            self.rtc_state = Some(new_state);
+                        }
+                        Err(_) => {
+                            log::warn!("Saved RTC state invalid");
+                        }
+                    }
+                }
+                file.seek(std::io::SeekFrom::Start(0)).unwrap();
+            }
+        }
+    }
+
+    fn on_during_file_load(&mut self, id: u16, data: &[u8]) {
+        if id != FILE_ROM {
+            return;
+        }
+        if self.emu_cart_config.is_none() {
+            self.save_type_detector.process(data);
+        }
+    }
+
+    fn on_after_file_load(&mut self, id: u16) {
+        if id != FILE_ROM {
+            return;
+        }
+        match self.emu_cart_config {
+            Some(config) => log::info!("Using save config: {:?}", config.save_type),
+            None => {
+                log::info!("Detected save type: {:?}", self.save_type_detector.get());
+                self.emu_cart_config = Some(EmulatedCartridgeConfig::from_save_type(
+                    self.save_type_detector.get(),
+                ));
+            }
+        }
+    }
+
+    fn on_before_run(&mut self) -> Result<(), String> {
+        let mut device = Device::lock();
+        self.initialize(&mut device).map_err(|e| e.to_string())?;
+
+        if let Some(_rom_header) = self.rom_header.as_ref() {
+            let emu_cart_config = self.emu_cart_config.unwrap();
+
+            // Configure emulated cartridge control registers
+            let _ = device
+                .fpga
+                .write_u32(REG_EMU_CART_CONFIG, emu_cart_config.as_config_u32());
+            let _ = device
+                .fpga
+                .write_u32(REG_EMU_CART_ROM_SIZE, self.rom_file_size - 1);
+
+            // Update RTC state
+            let rtc_state = match self.rtc_state {
+                Some(state) => state,
+                None => {
+                    let datetime = device.get_datetime();
+                    RtcState::from_offset_date_time(datetime)
+                }
+            };
+            let (rtc_lo, rtc_hi) = rtc_state.to_fpga();
+            let _ = device.fpga.write_u32(REG_RTC_LO, rtc_lo);
+            let _ = device.fpga.write_u32(REG_RTC_HI, rtc_hi);
+
+            // If IMU is needed, enable vsync IRQ
+            let mut need_vblank = false;
+            if emu_cart_config.has_gyro {
+                device.imu.enable_gyro().unwrap();
+                need_vblank = true;
+            }
+            if emu_cart_config.has_accel {
+                device.imu.enable_accel().unwrap();
+                need_vblank = true;
+            }
+            if need_vblank {
+                device
+                    .fpga
+                    .enable_interrupt(fpga::Irq::ModuleVblank)
+                    .unwrap();
+            }
+        } else {
+            // Switch to physical cartridge.
+            let _ = device
+                .fpga
+                .write_u32(REG_EMU_CART_CONFIG, EmulatedCartridgeConfig::DISABLED);
+        }
+
+        // Resume
+        device.fpga.write_u32(fpga::REG_CONTROL, 0b1011).unwrap();
+
+        Ok(())
+    }
+
+    fn get_file_size(&mut self, id: u16) -> u32 {
+        assert!(id == FILE_SAVE);
+        self.emu_cart_config
+            .as_ref()
+            .map_or(0, |e| e.save_type.get_size()) as u32
+    }
+
+    fn on_after_file_save(&mut self, id: u16, file: &mut File) {
+        assert!(id == FILE_SAVE);
+
+        // Save RTC
+        if self.emu_cart_config.as_ref().map_or(false, |e| e.has_rtc) {
+            let mut device = Device::lock();
+            let rtc_lo = device.fpga.read_u32(REG_RTC_LO).unwrap();
+            let rtc_hi = device.fpga.read_u32(REG_RTC_HI).unwrap();
+            let rtc_state = RtcState::from_fpga(rtc_lo, rtc_hi);
+            let timestamp = device.get_datetime().unix_timestamp();
+
+            // TODO: return unwraps as errors
+            file.write(&rtc_state.to_disk()).unwrap();
+            file.write(&(timestamp as u64).to_le_bytes()).unwrap();
+            log::info!("Wrote RTC state: {:?}", rtc_state);
+        }
     }
 }

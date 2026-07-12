@@ -315,55 +315,6 @@ where
         Ok(u32::from_be_bytes(data))
     }
 
-    pub fn sram_write(&mut self, address: u32, data: &[u8]) -> Result<(), Error> {
-        let address = 0x0500_0000 | address;
-        let command = SpiCommand {
-            word_size: FpgaSpiWordSize::Bits16,
-            byte_swap: true,
-            increment_address: true,
-        };
-        // SRAM transfers at 16 bits per transfer and takes 3 (!) cycles.
-        // (rate * (bits per transfer)) / ((bits per quad clock) * (cycles per transfer))
-        let max_clock = (self.system_clock.0 * 16) / (4 * 3);
-        self.spi_write(Some(Hertz(max_clock)), command, address, data)
-    }
-
-    pub fn sram_read(&mut self, address: u32, data: &mut [u8]) -> Result<(), Error> {
-        let address = 0x0500_0000 | address;
-        let command = SpiCommand {
-            word_size: FpgaSpiWordSize::Bits16,
-            byte_swap: true,
-            increment_address: true,
-        };
-        let max_clock = ((self.system_clock.0 * 16) / (4 * 3)).min(MAX_SPI_READ_CLOCK.0);
-        // log::info!("sram read with {:?}", max_clock);
-        self.spi_read(Some(Hertz(max_clock)), command, address, data)
-    }
-
-    pub fn sdram_write(&mut self, address: u32, data: &[u8]) -> Result<(), Error> {
-        let address = 0x8000_0000 | address;
-        let command = SpiCommand {
-            word_size: FpgaSpiWordSize::Bits32,
-            byte_swap: true,
-            increment_address: true,
-        };
-        // SDRAM transfers at 32 bits per transfer and takes 3.35 cycles on average (empirical).
-        let max_clock = (self.system_clock.0 as f32) * (32.0 / 4.0) / 3.35;
-        self.spi_write(Some(Hertz(max_clock as u32)), command, address, data)
-    }
-
-    pub fn sdram_read(&mut self, address: u32, data: &mut [u8]) -> Result<(), Error> {
-        let address = 0x8000_0000 | address;
-        let command = SpiCommand {
-            word_size: FpgaSpiWordSize::Bits32,
-            byte_swap: true,
-            increment_address: true,
-        };
-        let max_clock =
-            (((self.system_clock.0 as f32) * (32.0 / 4.0) / 3.35) as u32).min(MAX_SPI_READ_CLOCK.0);
-        self.spi_read(Some(Hertz(max_clock)), command, address, data)
-    }
-
     /// Configure the drawing bounds of the overlay.
     pub fn set_overlay_bounds(
         &mut self,

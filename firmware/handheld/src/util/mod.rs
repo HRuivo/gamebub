@@ -17,6 +17,7 @@ pub fn get_system_file_path(relative_path: &str) -> PathBuf {
     Path::new("/system/").join(relative_path)
 }
 
+#[allow(unused)]
 pub fn copy_file(from: &Path, to: &Path) -> std::io::Result<u64> {
     let mut reader = std::fs::File::open(from)?;
     // Workaround for an issue with esp-idf

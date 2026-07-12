@@ -73,7 +73,7 @@ static CORES: &[CoreInfo] = &[
                 asset_path: None,
 
                 optional: true,
-                read_only: true,
+                read_only: false,
                 user_selected: false,
                 dependent_on_0: true,
 
@@ -131,7 +131,7 @@ static CORES: &[CoreInfo] = &[
                 asset_path: None,
 
                 optional: true,
-                read_only: true,
+                read_only: false,
                 user_selected: false,
                 dependent_on_0: true,
 

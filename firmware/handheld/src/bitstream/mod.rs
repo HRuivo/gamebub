@@ -16,7 +16,7 @@ pub mod gba;
 
 mod util;
 
-static SCRATCH: ScratchBuffer<{ 16 * 1024 }> = ScratchBuffer::new();
+pub static SCRATCH: ScratchBuffer<{ 16 * 1024 }> = ScratchBuffer::new();
 
 /// Driver for a specific bitstream.
 pub trait Bitstream {
@@ -29,9 +29,13 @@ pub trait Bitstream {
     /// Called when a vblank IRQ occurs.
     fn on_vblank_irq(&mut self);
 
-    fn needs_save_persist(&self) -> bool;
+    fn needs_save_persist(&self) -> bool {
+        false
+    }
 
-    fn persist_save(&mut self) -> Result<(), String>;
+    fn persist_save(&mut self) -> Result<(), String> {
+        Ok(())
+    }
 }
 
 pub fn program_fpga(path: &Path) {
