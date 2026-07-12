@@ -52,6 +52,10 @@ pub enum CoreError {
     FailedLoadFile(String, String),
     #[error("Failed to save file {0}:\n{1}")]
     FailedSaveFile(String, String),
+    #[error("File {0} wrong size:\nExpected {1} bytes\nActually {2} bytes")]
+    FileWrongSize(String, u32, u32),
+    #[error("File {0} too big:\nMaximum {1} bytes\nActually {2} bytes")]
+    FileTooBig(String, u32, u32),
 }
 
 /// Core-specific lifecycle callbacks.
@@ -365,7 +369,21 @@ impl CoreManager {
                 .map_err(|e| FailedLoadFile(info.label.to_string(), e))?;
             let file_size = file.metadata().unwrap().len();
             overall_total += file_size;
-            // TODO check max size and exact size
+
+            if info.exact_size != 0 && file_size != (info.exact_size as u64) {
+                return Err(FileWrongSize(
+                    info.label.to_string(),
+                    info.exact_size,
+                    file_size as u32,
+                ));
+            }
+            if info.max_size != 0 && file_size > (info.max_size as u64) {
+                return Err(FileTooBig(
+                    info.label.to_string(),
+                    info.max_size,
+                    file_size as u32,
+                ));
+            }
 
             let start_time = Instant::now();
             let mut transfer_duration = Duration::ZERO;
