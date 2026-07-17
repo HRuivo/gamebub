@@ -90,9 +90,7 @@ where
     ///     CODEC_CLKIN = NDAC × MDAC × DOSR × DAC_fS
     ///     DAC_fS is 48KHz, and CODEC_CLKIN is MCLK.
     ///     
-    ///     [Rev 1, 2]: MCLK is 256 * DAC_fS
-    ///     [Rev 3]:    MCLK is 544 * DAC_fS
-    ///     [Rev 4]:    MCLK is 608 * DAC_fS
+    ///     MCLK is 256 * DAC_fS
     ///
     ///     For filter type B, DOSR must be a multiple of 4.
     ///     (DOSR is "oversampling ratio"?)
@@ -103,9 +101,7 @@ where
     ///     NDAC should be as large as possible with "MDAC × DOSR / 32 ≥ RC",
     ///     where RC for PRB_P7 is 6.
     ///
-    ///     [Rev 1, 2]: DOSR = 128, MDAC = 2, NDAC = 1
-    ///     [Rev 3]:    DOSR =  68, MDAC = 4, NDAC = 2
-    ///     [Rev 4]:    DOSR =  76, MDAC = 4, NDAC = 2
+    ///     DOSR = 128, MDAC = 2, NDAC = 1
     ///
     /// ## Common-mode voltage
     ///     Based on the analog power supply. For Rev 1+, we have 3.3V.
@@ -113,21 +109,9 @@ where
     ///     <= AVDD/2.
     ///     We'll go with 1.5V
     pub fn init(&mut self) -> Result<(), Error> {
-        cfg_if::cfg_if! {
-            if #[cfg(any(feature = "rev1", feature = "rev2"))] {
-                let dosr = 128;
-                let mdac = 2;
-                let ndac = 1;
-            } else if #[cfg(feature = "rev3")] {
-                let dosr = 68;
-                let mdac = 4;
-                let ndac = 2;
-            } else if #[cfg(feature = "rev4")] {
-                let dosr = 76;
-                let mdac = 4;
-                let ndac = 2;
-            }
-        };
+        let dosr = 128;
+        let mdac = 2;
+        let ndac = 1;
 
         // 1. Set up device.
         self.reset()?;

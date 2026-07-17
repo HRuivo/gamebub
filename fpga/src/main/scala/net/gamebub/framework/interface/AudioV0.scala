@@ -6,5 +6,4 @@ class AudioV0(
 ) extends Bundle {
   val left = Output(SInt(16.W))
   val right = Output(SInt(16.W))
-  // TODO: sample enable Input?
 }

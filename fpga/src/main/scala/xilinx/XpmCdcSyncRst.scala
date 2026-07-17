@@ -19,7 +19,7 @@ class XpmCdcSyncRst extends Module {
     val sourceReset = Input(Reset())
 
     /** Destination reset */
-    val destReset = Output(Reset())
+    val destReset = Output(Bool())
   })
 
   val cdc = Module(new xpm_cdc_sync_rst())
@@ -37,7 +37,7 @@ class xpm_cdc_sync_rst(
 )) {
   val io = FlatIO(new Bundle {
     val dest_clk = Input(Bool())
-    val dest_rst = Output(Reset())
+    val dest_rst = Output(Bool())
     val src_rst = Input(Reset())
   })
 }

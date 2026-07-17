@@ -7,6 +7,7 @@ import lib.mem.{HandshakeMemoryCdc, MemoryInterface, MemoryMap, RegisterMap}
 import lib.video.{Color, ColorARGB, ColorCorrection, ColorGrayscale}
 import xilinx.{XpmCdcHandshake, XpmCdcSingle, XpmCdcSyncRst}
 import net.gamebub.framework.interface._
+import lib.util.FractionalDivider
 
 object HandheldTop extends App {
   // Parse arguments.
@@ -56,7 +57,6 @@ object HandheldTop extends App {
         clockDisplayHzMax = 12_363_000,
         overlayWidth = 240,
         overlayHeight = 160,
-        audioMclkFactor = 256,
       )
       case "3" => Revision(
         displayWidth = 800,
@@ -78,7 +78,6 @@ object HandheldTop extends App {
         clockDisplayHzMax = 26_100_000,
         overlayWidth = 360,
         overlayHeight = 240,
-        audioMclkFactor = 544,
       )
       case "4" => Revision(
         displayWidth = 800,
@@ -103,7 +102,6 @@ object HandheldTop extends App {
         clockDisplayHzMax = 29_362_000,
         overlayWidth = 360,
         overlayHeight = 240,
-        audioMclkFactor = 608,
       )
       case _ => throw new IllegalArgumentException("invalid revision " + name)
     }
@@ -490,16 +488,6 @@ class HandheldTop[T <: Module with HandheldModule](moduleFactory: () => T, revis
     io.lcdDataG := lcdData.g
     io.lcdDataB := lcdData.b
 
-    val audioTransmitter =
-      Module(new AudioDspTransmitter(
-        bitWidth = 16,
-        mclkFactor = revision.audioMclkFactor,
-        channels = 2,
-      ))
-    io.dac := audioTransmitter.io.signals
-    audioTransmitter.io.dataLeft := audioDataLeft
-    audioTransmitter.io.dataRight := audioDataRight
-
     /**
      * HDMI audio and video signal output
      * Video ID Code 2: 720x480 @ 60Hz
@@ -515,7 +503,6 @@ class HandheldTop[T <: Module with HandheldModule](moduleFactory: () => T, revis
     val hdmiEnable = XpmCdcSingle(clock, displayRegister.docked)
     when (hdmiEnable) {
       dpiDriver.reset := true.B
-      audioTransmitter.reset := true.B
       val screenWidth = 720
       val screenHeight = 480
 
@@ -614,6 +601,54 @@ class HandheldTop[T <: Module with HandheldModule](moduleFactory: () => T, revis
         dpiY < (overlayOffsetY + (overlayHeight * overlayScale)).U
       // TODO: re-add overlay X/Y positioning control if needed
     }
+  }
+
+  //////////////////////////////////
+  // Audio
+  //////////////////////////////////
+  val reset50M = withClock(io.clockIn50Mhz) { XpmCdcSyncRst(reset) }
+  withClockAndReset (clock = io.clockIn50Mhz, reset = reset50M) {
+    // Synchronize audio data into this domain
+    val syncAudioData = XpmCdcHandshake.continuous(clock, Cat(module.io.audio.left.asUInt, module.io.audio.right.asUInt))
+
+    // 16-bit, 2 channel audio output at 48 kHz
+    // MCLK = 48 KHz * 256 = 12.288 MHz
+    val mclkFactor = 256
+    val bitWidth = 16
+    val channels = 2
+    val regMClock = Reg(Bool())
+    val divider = Module(new FractionalDivider(inputHz = 50_000_000, targetHz = 12_288_000 * 2))
+    when (divider.io.pulse) {
+      regMClock := !regMClock
+    }
+    val mclkEdge = divider.io.pulse && !regMClock
+
+    val regSample = RegInit(0.U((bitWidth * channels).W))
+    val regWordClock = RegInit(false.B)
+    val regBitClock = RegInit(true.B)
+
+    val bitClockCounter = Counter(mclkFactor / bitWidth / channels / 2)
+    val sampleCounter = Counter(mclkFactor)
+
+    when (mclkEdge) {
+      when (bitClockCounter.inc()) {
+        regBitClock := !regBitClock
+        when (!regBitClock) {
+          // Rising edge of bit clock
+          regWordClock := false.B
+          regSample := regSample << 1
+        }
+      }
+      when (sampleCounter.inc()) {
+        regSample := syncAudioData
+        regWordClock := true.B
+      }
+    }
+
+    io.dac.mclk := regMClock
+    io.dac.wclk := regWordClock
+    io.dac.bclk := regBitClock
+    io.dac.data := regSample(regSample.getWidth - 1)
   }
 
 //  io.pmod.dir := "b1111".U
@@ -738,7 +773,4 @@ case class Revision(
 
   overlayWidth: Int,
   overlayHeight: Int,
-
-  /// The multipler to go from audio sample rate (48kHz) to MCLK
-  audioMclkFactor: Int,
 )
