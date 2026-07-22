@@ -284,23 +284,13 @@ where
         )
     }
 
-    pub fn write_u16(&mut self, address: u32, data: u16) -> Result<(), Error> {
-        let command = SpiCommand {
-            word_size: FpgaSpiWordSize::Bits16,
-            byte_swap: false,
-            increment_address: true,
-        };
-        let data = data.to_be_bytes();
-        self.spi_write(None, command, address, &data)
-    }
-
     pub fn write_u32(&mut self, address: u32, data: u32) -> Result<(), Error> {
         let command = SpiCommand {
             word_size: FpgaSpiWordSize::Bits32,
-            byte_swap: false,
+            byte_swap: true,
             increment_address: true,
         };
-        let data = data.to_be_bytes();
+        let data = data.to_le_bytes();
         self.spi_write(None, command, address, &data)
     }
 
@@ -308,11 +298,11 @@ where
         let mut data = [0u8; 4];
         let command = SpiCommand {
             word_size: FpgaSpiWordSize::Bits32,
-            byte_swap: false,
+            byte_swap: true,
             increment_address: true,
         };
         self.spi_read(Some(MAX_SPI_READ_CLOCK), command, address, &mut data)?;
-        Ok(u32::from_be_bytes(data))
+        Ok(u32::from_le_bytes(data))
     }
 
     /// Configure the drawing bounds of the overlay.
