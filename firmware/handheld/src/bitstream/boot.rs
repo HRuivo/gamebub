@@ -31,11 +31,7 @@ pub fn load_cpu_memory(
         // Round n up to multiple of 4
         let n = (n + 3) & !3;
 
-        let command = fpga::SpiCommand {
-            word_size: fpga::FpgaSpiWordSize::Bits32,
-            byte_swap: true,
-            increment_address: true,
-        };
+        let command = fpga::SpiCommand::new(fpga::FpgaSpiWordSize::Bits32);
         // 32 bits per transfer, 2 clocks each.
         let max_clock = Hertz(8 * 1024 * 1024) * 32 / (4 * 2);
         device

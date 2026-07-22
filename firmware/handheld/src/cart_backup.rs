@@ -55,11 +55,7 @@ fn task(mut stream: CdcStream) {
             let count = tx_ready.min(buf.len() as u32);
             let mut buf = &mut buf[0..count as usize];
             device.fpga.write_u32(REG_TX_READ_LIMIT, count).unwrap();
-            let command = fpga::SpiCommand {
-                word_size: fpga::FpgaSpiWordSize::Bits8,
-                byte_swap: false,
-                increment_address: true,
-            };
+            let command = fpga::SpiCommand::new(fpga::FpgaSpiWordSize::Bits8);
             device
                 .fpga
                 .spi_read(Some(MAX_CLOCK), command, FIFO_BASE, &mut buf)
@@ -79,11 +75,7 @@ fn task(mut stream: CdcStream) {
                 if read > 0 {
                     let data = &buf[..read];
 
-                    let command = fpga::SpiCommand {
-                        word_size: fpga::FpgaSpiWordSize::Bits8,
-                        byte_swap: false,
-                        increment_address: true,
-                    };
+                    let command = fpga::SpiCommand::new(fpga::FpgaSpiWordSize::Bits8);
                     device
                         .fpga
                         .spi_write(Some(MAX_CLOCK), command, FIFO_BASE, data)

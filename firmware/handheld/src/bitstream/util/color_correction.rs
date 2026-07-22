@@ -147,11 +147,7 @@ impl ColorCorrection {
         for (register, data) in writes {
             let data: &[u8] =
                 unsafe { std::slice::from_raw_parts(data.as_ptr().cast(), data.len() * 2) };
-            let command = fpga::SpiCommand {
-                word_size: fpga::FpgaSpiWordSize::Bits16,
-                byte_swap: true,
-                increment_address: true,
-            };
+            let command = fpga::SpiCommand::new(fpga::FpgaSpiWordSize::Bits16);
             device
                 .fpga
                 .spi_write(Some(MegaHertz(10).into()), command, base | register, data)?;

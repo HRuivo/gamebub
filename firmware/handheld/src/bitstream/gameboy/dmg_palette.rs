@@ -53,11 +53,7 @@ impl DmgPalette {
         copy(&mut data[24..32], &self.window);
 
         let address = super::DMG_PALETTE_BASE;
-        let command = fpga::SpiCommand {
-            word_size: fpga::FpgaSpiWordSize::Bits16,
-            byte_swap: true,
-            increment_address: true,
-        };
+        let command = fpga::SpiCommand::new(fpga::FpgaSpiWordSize::Bits16);
         let max_clock = Hertz(10_000_000);
         device
             .fpga

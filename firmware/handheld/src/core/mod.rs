@@ -393,11 +393,7 @@ impl CoreManager {
             let result = crate::util::background_io::iter_chunks(file, &mut scratch, |chunk| {
                 let transfer_start = Instant::now();
                 let max_clock = Some(Hertz(info.max_transfer_speed * 1000 * 2));
-                let command = SpiCommand {
-                    word_size: info.transfer_word_size,
-                    byte_swap: true,
-                    increment_address: true,
-                };
+                let command = SpiCommand::new(info.transfer_word_size);
                 Device::lock()
                     .fpga
                     .spi_write(max_clock, command, info.address + transferred, chunk)
@@ -466,11 +462,7 @@ impl CoreManager {
 
                 let max_clock =
                     Some(Hertz(info.max_transfer_speed * 1000 * 2).min(MAX_SPI_READ_CLOCK));
-                let command = SpiCommand {
-                    word_size: info.transfer_word_size,
-                    byte_swap: true,
-                    increment_address: true,
-                };
+                let command = SpiCommand::new(info.transfer_word_size);
                 let _ = Device::lock()
                     .fpga
                     .spi_read(max_clock, command, address, data);
@@ -576,11 +568,7 @@ fn clear_file_slot(info: &CoreFile, buf: &mut [u8]) {
     while pos < len {
         let n = ((len - pos) as usize).min(buf.len());
         let max_clock = Some(Hertz(info.max_transfer_speed * 1000 * 2));
-        let command = SpiCommand {
-            word_size: info.transfer_word_size,
-            byte_swap: true,
-            increment_address: true,
-        };
+        let command = SpiCommand::new(info.transfer_word_size);
         let _ = Device::lock()
             .fpga
             .spi_write(max_clock, command, info.address + pos, &buf[..n]);

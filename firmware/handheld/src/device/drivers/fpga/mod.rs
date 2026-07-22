@@ -285,22 +285,14 @@ where
     }
 
     pub fn write_u32(&mut self, address: u32, data: u32) -> Result<(), Error> {
-        let command = SpiCommand {
-            word_size: FpgaSpiWordSize::Bits32,
-            byte_swap: true,
-            increment_address: true,
-        };
+        let command = SpiCommand::new(FpgaSpiWordSize::Bits32);
         let data = data.to_le_bytes();
         self.spi_write(None, command, address, &data)
     }
 
     pub fn read_u32(&mut self, address: u32) -> Result<u32, Error> {
         let mut data = [0u8; 4];
-        let command = SpiCommand {
-            word_size: FpgaSpiWordSize::Bits32,
-            byte_swap: true,
-            increment_address: true,
-        };
+        let command = SpiCommand::new(FpgaSpiWordSize::Bits32);
         self.spi_read(Some(MAX_SPI_READ_CLOCK), command, address, &mut data)?;
         Ok(u32::from_le_bytes(data))
     }
@@ -333,11 +325,7 @@ where
 
     /// Write overlay framebuffer.
     pub fn write_overlay(&mut self, offset: u32, data: &[u8]) -> Result<(), Error> {
-        let command = SpiCommand {
-            word_size: FpgaSpiWordSize::Bits16,
-            byte_swap: true,
-            increment_address: true,
-        };
+        let command = SpiCommand::new(FpgaSpiWordSize::Bits16);
         // 16 bits per transfer, 2 cycles per transfer.
         let max_clock = (self.system_clock.0 * 16) / (4 * 2);
         self.spi_write(Some(Hertz(max_clock)), command, 0x8100_0000 | offset, data)
@@ -370,6 +358,14 @@ pub struct SpiCommand {
 }
 
 impl SpiCommand {
+    pub fn new(word_size: FpgaSpiWordSize) -> Self {
+        SpiCommand {
+            word_size,
+            byte_swap: true,
+            increment_address: true,
+        }
+    }
+
     fn as_read_command(self) -> u8 {
         (1u8)
             | ((self.word_size as u8) << 1)
