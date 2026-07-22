@@ -53,6 +53,7 @@ class HandheldBoot extends Module with HandheldModule {
 
     val registerInterface = Wire(new MemoryInterface(addressWidth = 16, dataWidth = 32))
     val hostMemInterface = Wire(new MemoryInterface(addressWidth = 16, dataWidth = 32))
+    val hostFifoInterface = Wire(new MemoryInterface(addressWidth = 24, dataWidth = 32))
     io.host.mem <> MemoryMap(
         addressWidth = 32,
         dataWidth = 32,
@@ -60,14 +61,9 @@ class HandheldBoot extends Module with HandheldModule {
             0x00.U(8.W) -> logo.io.registers,
             0x04.U(8.W) -> registerInterface,
             0x05.U(8.W) -> hostMemInterface,
+            0x06.U(8.W) -> hostFifoInterface,
         ))
 
-    // TODO: fix the fundmental issue with the MemoryInterface
-    // The problem is that the 'enable' signal is held high for 2 clock cycles,
-    // so the reads and writes are actually done twice. Not great for interacting
-    // with a FIFO.
-    // requires read/write clock of 10 MHz or less for 8-bit transfer
-    val doTransfer = RegNext(registerInterface.enable) && registerInterface.enable
     // Require host MCU to specify how many bytes it intends to read.
     // This is because the SPI receiver will pre-fetch reads (so we'll read an extra
     // few bytes, which would cause us to lose data from the FIFO).
@@ -86,31 +82,32 @@ class HandheldBoot extends Module with HandheldModule {
             0x8 -> RegisterMap.Entry.r(regLastCpuPc),
             0x100 -> RegisterMap.Entry.r(txQueue.io.count),
             0x104 -> RegisterMap.Entry.w(regTxQueueReadLimit),
-            0x108 -> RegisterMap.Entry(
-                width = 8,
-                read = RegisterMap.ReadFn((read: Bool) => {
-                    when (read && doTransfer && regTxQueueReadLimit > 0.U) {
-                        txQueue.io.deq.ready := true.B
-                        regTxQueueReadLimit := regTxQueueReadLimit - 1.U
-                    }
-                    txQueue.io.deq.bits
-                }),
-                write = RegisterMap.WriteFn(),
-            ),
             0x110 -> RegisterMap.Entry.r(rxQueue.io.count),
-            0x118 -> RegisterMap.Entry(
-                width = 8,
-                read = RegisterMap.ReadFn(),
-                write = RegisterMap.WriteFn((write: Bool, data: UInt) =>
-                    when (write && doTransfer) {
-                        rxQueue.io.enq.valid := true.B
-                        rxQueue.io.enq.bits := data
-                    }
-                ),
-            ),
             0x120 -> RegisterMap.Entry.r(cartPowerOn),
         )
     )
+
+    // Host FIFO
+    val hostFifoBusy = RegInit(false.B)
+    hostFifoInterface.dataRead := DontCare
+    hostFifoInterface.done := hostFifoBusy
+    when (hostFifoBusy) {
+        hostFifoBusy := false.B
+
+        when (hostFifoInterface.write) {
+            rxQueue.io.enq.valid := true.B
+            rxQueue.io.enq.bits := hostFifoInterface.dataWrite
+        } .otherwise {
+            when (regTxQueueReadLimit > 0.U) {
+                txQueue.io.deq.ready := true.B
+                hostFifoInterface.dataRead := txQueue.io.deq.bits
+                regTxQueueReadLimit := regTxQueueReadLimit - 1.U
+            }
+        }
+    } .elsewhen (hostFifoInterface.enable) {
+        // Do the access on the next cycle.
+        hostFifoBusy := true.B
+    }
 
     // 64 KiB read/write memory, 32 bit words with byte mask
     val cpuMem = {

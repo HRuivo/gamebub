@@ -10,6 +10,7 @@ pub const REG_LOGO_Y: u32 = REG_LOGO_BASE | 0x4;
 
 pub const REG_BASE: u32 = 0x0400_0000;
 pub const MEM_BASE: u32 = 0x0500_0000;
+pub const FIFO_BASE: u32 = 0x0600_0000;
 
 /// Load a file to the internal soft CPU memory.
 pub fn load_cpu_memory(

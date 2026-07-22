@@ -2,7 +2,7 @@ use std::{io::Write, time::Duration};
 
 use esp_idf_svc::hal::units::Hertz;
 
-use crate::bitstream::boot::REG_BASE;
+use crate::bitstream::boot::{FIFO_BASE, REG_BASE};
 use crate::device::{
     drivers::{fpga, usb::CdcStream},
     Device,
@@ -11,9 +11,7 @@ use crate::device::{
 const REG_CPU_RESET_N: u32 = REG_BASE | 0x0;
 const REG_TX_COUNT: u32 = REG_BASE | 0x100;
 const REG_TX_READ_LIMIT: u32 = REG_BASE | 0x104;
-const REG_TX_DATA: u32 = REG_BASE | 0x108;
 const REG_RX_COUNT: u32 = REG_BASE | 0x110;
-const REG_RX_DATA: u32 = REG_BASE | 0x118;
 const REG_CART_EN: u32 = REG_BASE | 0x120;
 
 const TX_SIZE: u32 = 4096;
@@ -60,11 +58,11 @@ fn task(mut stream: CdcStream) {
             let command = fpga::SpiCommand {
                 word_size: fpga::FpgaSpiWordSize::Bits8,
                 byte_swap: false,
-                increment_address: false,
+                increment_address: true,
             };
             device
                 .fpga
-                .spi_read(Some(MAX_CLOCK), command, REG_TX_DATA, &mut buf)
+                .spi_read(Some(MAX_CLOCK), command, FIFO_BASE, &mut buf)
                 .unwrap();
 
             // Write it to CDC.
@@ -84,11 +82,11 @@ fn task(mut stream: CdcStream) {
                     let command = fpga::SpiCommand {
                         word_size: fpga::FpgaSpiWordSize::Bits8,
                         byte_swap: false,
-                        increment_address: false,
+                        increment_address: true,
                     };
                     device
                         .fpga
-                        .spi_write(Some(MAX_CLOCK), command, REG_RX_DATA, data)
+                        .spi_write(Some(MAX_CLOCK), command, FIFO_BASE, data)
                         .unwrap();
                 }
             }
