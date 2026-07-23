@@ -7,6 +7,7 @@ import lib.mem.{HandshakeMemoryCdc, MemoryInterface, MemoryMap, RegisterMap}
 import lib.video.{Color, ColorARGB, ColorCorrection, ColorGrayscale}
 import xilinx.{XpmCdcHandshake, XpmCdcSingle, XpmCdcSyncRst}
 import net.gamebub.framework.interface._
+import net.gamebub.framework.Core
 import lib.util.FractionalDivider
 import platform.handheld.display.DisplayDriverIO
 import platform.handheld.display.ILI9806E
@@ -17,20 +18,20 @@ import platform.handheld.display.DpiSignals
 object HandheldTop extends App {
   // Parse arguments.
   if (args.length < 2) {
-    throw new IllegalArgumentException("missing arg 0: inner class, arg 1: revision")
+    throw new IllegalArgumentException("missing arg 0: core class, arg 1: revision")
   }
-  val argInnerClassName :: argRevision :: argRest = args.toList
+  val argCoreClassName :: argRevision :: argRest = args.toList
 
   // Generate verilog.
-  val moduleFactory = () =>
+  val coreFactory = () =>
     Class
-      .forName(argInnerClassName)
+      .forName(argCoreClassName)
       .getDeclaredConstructor()
       .newInstance()
-      .asInstanceOf[Module with HandheldModule]
+      .asInstanceOf[Core]
 
   ChiselStage.emitSystemVerilogFile(
-    new HandheldTop(moduleFactory, getRevision(argRevision)),
+    new HandheldTop(coreFactory, getRevision(argRevision)),
     argRest.toArray,
     firtoolOpts = Array(
       "--preserve-aggregate=1d-vec",
@@ -92,29 +93,11 @@ object HandheldTop extends App {
   }
 }
 
-/** IO bundle used for a handheld submodule. */
-abstract class HandheldIo extends Bundle {
-  val clocks: ClocksV0
-  val video: VideoV0
-  val audio: AudioV0
-  val host: HostV0
-  val pmod: PmodV0
-  val input: InputV0
-  val cartridge: CartridgePortV0
-  val link: LinkPortV0
-  val sram: SramV0
-  val sdram: SdramV0
-}
-
-trait HandheldModule {
-  def io: HandheldIo
-}
-
 class HandheldInterrupts extends Bundle {
   val spiResponseFifoUnderflow = Bool()
   val spiRequestFifoOverflow = Bool()
   val buttonEdge = Bool()
-  val moduleVblank = Bool()
+  val coreVblank = Bool()
 }
 
 object HandheldVibrate extends ChiselEnum {
@@ -122,14 +105,11 @@ object HandheldVibrate extends ChiselEnum {
 }
 
 /**
- * Top-level Chisel module for the handheld.
- *
- * The outer clock is passed down to the inner module,
- * e.g. 8.3886 MHz for Gameboy.
+ * Top-level Chisel module for the Handheld.
  */
-class HandheldTop[T <: Module with HandheldModule](moduleFactory: () => T, revision: Revision) extends Module {
+class HandheldTop[T <: Core](coreFactory: () => T, revision: Revision) extends Module {
   ClocksV0.getClockDisplayHz = revision.getClockDisplayHz
-  val module = Module(moduleFactory())
+  val core = Module(coreFactory())
 
   val io = IO(new Bundle {
     /** Clocking **/
@@ -187,10 +167,10 @@ class HandheldTop[T <: Module with HandheldModule](moduleFactory: () => T, revis
   //////////////////////////////////
   // Clocking
   //////////////////////////////////
-  io.clockOutLocked := module.io.clocks.locked
-  io.clockOutSys := module.io.clocks.clockOutSystem
-  io.clockOutDpi := module.io.clocks.clockOutDisplay
-  val clockSpi = module.io.clocks.clockOutSpi
+  io.clockOutLocked := core.io.clocks.locked
+  io.clockOutSys := core.io.clocks.clockOutSystem
+  io.clockOutDpi := core.io.clocks.clockOutDisplay
+  val clockSpi = core.io.clocks.clockOutSpi
 
   //////////////////////////////////
   // MCU Communication
@@ -211,14 +191,14 @@ class HandheldTop[T <: Module with HandheldModule](moduleFactory: () => T, revis
   }
 
   val controlRegister = RegInit(0.U.asTypeOf(new Bundle() {
-    /** True to enable vibration (if the module uses it) */
+    /** True to enable vibration (if the core uses it) */
     val vibrate = Bool()
-    /** Whether the module is currently in vblank. (TODO make read-only) */
-    val moduleVblank = Bool()
-    /** Active-low reset for the inner module. */
-    val moduleReset = Bool()
-    /** Active-high enable for the inner module. */
-    val moduleEnable = Bool()
+    /** Whether the core is currently in vblank. (TODO make read-only) */
+    val coreVblank = Bool()
+    /** Active-low reset for the inner core. */
+    val coreReset = Bool()
+    /** Active-high enable for the inner core. */
+    val coreEnable = Bool()
   }))
   val displayRegister = RegInit(0.U.asTypeOf(new Bundle() {
     val docked = Bool()
@@ -274,14 +254,14 @@ class HandheldTop[T <: Module with HandheldModule](moduleFactory: () => T, revis
       0x104 -> RegisterMap.Entry.rw(overlayYControlRegister),
       // Framebuffer dimensions
       0x200 -> RegisterMap.Entry.r(
-        Cat(module.io.video.videoWidth.U(16.W), module.io.video.videoHeight.U(16.W))),
+        Cat(core.io.video.videoWidth.U(16.W), core.io.video.videoHeight.U(16.W))),
       // Stats
       0x300 -> RegisterMap.Entry.r(0.U),
       0x304 -> RegisterMap.Entry.r(0.U),
     )
   )
 
-  val moduleMcuInterface = Wire(new MemoryInterface(addressWidth = 31, dataWidth = 32))
+  val coreHostInterface = Wire(new MemoryInterface(addressWidth = 31, dataWidth = 32))
   val overlayInterface = Wire(new MemoryInterface(addressWidth = 18, dataWidth = 16))
   val framebufferInterface = Wire(new MemoryInterface(addressWidth = 18, dataWidth = 16))
   val colorCorrectInterface = Wire(new MemoryInterface(addressWidth = 9, dataWidth = 16))
@@ -294,7 +274,7 @@ class HandheldTop[T <: Module with HandheldModule](moduleFactory: () => T, revis
     dataWidth = 32,
     entries = Seq(
       // 2 GiB region 0x0000_0000 - 0x7FFF_FFFF
-      0x00.U(1.W) -> moduleMcuInterface,
+      0x00.U(1.W) -> coreHostInterface,
 
       0x80.U(8.W) -> registerMap,
       0x81.U(8.W) -> overlayInterface,
@@ -302,7 +282,7 @@ class HandheldTop[T <: Module with HandheldModule](moduleFactory: () => T, revis
       0xC00.U(12.W) -> colorCorrectInterface,
     ))
 
-  controlRegister.moduleVblank := module.io.video.vblank
+  controlRegister.coreVblank := core.io.video.vblank
   when (spi.io.debugRequestOverflow) {
     interruptFlags.spiRequestFifoOverflow := true.B
 
@@ -315,8 +295,8 @@ class HandheldTop[T <: Module with HandheldModule](moduleFactory: () => T, revis
   // Interrupts
   //////////////////////////////////
   io.mcuIrq := (interruptFlags.asUInt & interruptEnable.asUInt).orR
-  when (module.io.video.vblank && !RegNext(module.io.video.vblank)) {
-    interruptFlags.moduleVblank := true.B
+  when (core.io.video.vblank && !RegNext(core.io.video.vblank)) {
+    interruptFlags.coreVblank := true.B
   }
 
   //////////////////////////////////
@@ -336,15 +316,15 @@ class HandheldTop[T <: Module with HandheldModule](moduleFactory: () => T, revis
   //////////////////////////////////
   // Video
   //////////////////////////////////
-  val videoWidth = module.io.video.videoWidth
-  val videoHeight = module.io.video.videoHeight
+  val videoWidth = core.io.video.videoWidth
+  val videoHeight = core.io.video.videoHeight
 
   io.hdmiEnable := displayRegister.docked
 
   // Double buffering
   val framebuffers = (0 until 2).map(_ =>
     SRAM(
-      videoWidth * videoHeight, UInt(module.io.video.data.getWidth.W),
+      videoWidth * videoHeight, UInt(core.io.video.data.getWidth.W),
       readPortClocks = Seq(io.clock_av), writePortClocks = Seq(), readwritePortClocks = Seq(clock)
     )
   )
@@ -354,7 +334,7 @@ class HandheldTop[T <: Module with HandheldModule](moduleFactory: () => T, revis
   val overlayWidth = revision.overlayWidth
   val overlayHeight = revision.overlayHeight
   val overlayFramebuffer = SRAM(
-    overlayWidth * overlayHeight, UInt(module.io.host.overlayColorDepth2.getWidth.W),
+    overlayWidth * overlayHeight, UInt(core.io.host.overlayColorDepth2.getWidth.W),
     readPortClocks = Seq(io.clock_av), writePortClocks = Seq(clock), readwritePortClocks = Seq(),
   )
 
@@ -375,7 +355,7 @@ class HandheldTop[T <: Module with HandheldModule](moduleFactory: () => T, revis
     val framebufferReadAddress = Wire(UInt(log2Ceil(videoWidth * videoHeight).W))
     val overlayReadAddress = Wire(UInt(log2Ceil(overlayWidth * overlayHeight).W))
 
-    val audioData = XpmCdcHandshake.continuous(clock, Cat(module.io.audio.left.asUInt, module.io.audio.right.asUInt))
+    val audioData = XpmCdcHandshake.continuous(clock, Cat(core.io.audio.left.asUInt, core.io.audio.right.asUInt))
     val audioDataLeft = audioData(31, 16)
     val audioDataRight = audioData(15, 0)
 
@@ -391,7 +371,7 @@ class HandheldTop[T <: Module with HandheldModule](moduleFactory: () => T, revis
     }
     val framebufferRead = MuxLookup(framebufferIndex, 0.U)(
       (0 until 2).map(i => i.U -> RegNext(RegNext(framebuffers(i).readPorts(0).data)))
-    ).asTypeOf(module.io.video.data)
+    ).asTypeOf(core.io.video.data)
 
     // Color corrections
     val colorCorrector = Module(new ColorCorrection(inputDepth = 5, outputDepth = 6))
@@ -441,7 +421,7 @@ class HandheldTop[T <: Module with HandheldModule](moduleFactory: () => T, revis
     overlayFramebuffer.readPorts(0).enable := true.B
     overlayFramebuffer.readPorts(0).address := overlayReadAddress
     val overlayRead = RegNext(RegNext(overlayFramebuffer.readPorts(0).data))
-      .asTypeOf(module.io.host.overlayColorDepth2)
+      .asTypeOf(core.io.host.overlayColorDepth2)
       .convertTo(ColorARGB(1, 8, 8, 8))
 
     val framebufferInBounds = Wire(Bool())
@@ -456,8 +436,8 @@ class HandheldTop[T <: Module with HandheldModule](moduleFactory: () => T, revis
 
     // DPI video signal output
     val (dpiDriver, dpiDriverIo) = revision.displayDriverFactory(
-      /* sourceFramePeriod = */ module.io.video.framePeriod,
-      /* clockHz = */ module.io.clocks.clockDisplayHz,
+      /* sourceFramePeriod = */ core.io.video.framePeriod,
+      /* clockHz = */ core.io.clocks.clockDisplayHz,
     )
     dpiDriverIo.lastRenderedFrame := lastFrameComplete
     io.lcd := dpiDriverIo.signals
@@ -592,7 +572,7 @@ class HandheldTop[T <: Module with HandheldModule](moduleFactory: () => T, revis
   val reset50M = withClock(io.clockIn50Mhz) { XpmCdcSyncRst(reset) }
   withClockAndReset (clock = io.clockIn50Mhz, reset = reset50M) {
     // Synchronize audio data into this domain
-    val syncAudioData = XpmCdcHandshake.continuous(clock, Cat(module.io.audio.left.asUInt, module.io.audio.right.asUInt))
+    val syncAudioData = XpmCdcHandshake.continuous(clock, Cat(core.io.audio.left.asUInt, core.io.audio.right.asUInt))
 
     // 16-bit, 2 channel audio output at 48 kHz
     // MCLK = 48 KHz * 256 = 12.288 MHz
@@ -635,7 +615,7 @@ class HandheldTop[T <: Module with HandheldModule](moduleFactory: () => T, revis
   }
 
 //  io.pmod.dir := "b1111".U
-//  module.io.pmod.in := 0.U
+//  core.io.pmod.in := 0.U
 
   // Overlay access.
   // TODO: consider switching to (or adding) a method of writing where
@@ -650,7 +630,7 @@ class HandheldTop[T <: Module with HandheldModule](moduleFactory: () => T, revis
   overlayFramebuffer.writePorts(0).data :=
     overlayInterface.dataWrite
       .asTypeOf(ColorARGB.argb1555())
-      .convertTo(module.io.host.overlayColorDepth2)
+      .convertTo(core.io.host.overlayColorDepth2)
       .asUInt
   overlayInterface.done := RegNext(overlayInterface.enable)
 
@@ -678,54 +658,54 @@ class HandheldTop[T <: Module with HandheldModule](moduleFactory: () => T, revis
   framebufferInterface.done := RegNext(RegNext(framebufferInterface.enable))
 
   //////////////////////////////////
-  // Submodule Connections
+  // Core Connections
   //////////////////////////////////
-  module.io.clocks.clockIn50M := io.clockIn50Mhz
-  module.io.host.enable := controlRegister.moduleEnable
-  module.io.host.reset := !controlRegister.moduleReset
-  val vibrateEnabled = module.io.host.enable && controlRegister.vibrate && !displayRegister.docked
-  io.vibrate := RegNext(module.io.input.vibrate === HandheldVibrate.On && vibrateEnabled)
-  io.link <> module.io.link
-  io.pmod <> module.io.pmod
-  module.io.host.mem <> moduleMcuInterface
-  module.io.input.buttons := (buttonState.asUInt | buttonForceRegister.asUInt).asTypeOf(new InputV0.Buttons)
+  core.io.clocks.clockIn50M := io.clockIn50Mhz
+  core.io.host.enable := controlRegister.coreEnable
+  core.io.host.reset := !controlRegister.coreReset
+  val vibrateEnabled = core.io.host.enable && controlRegister.vibrate && !displayRegister.docked
+  io.vibrate := RegNext(core.io.input.vibrate === HandheldVibrate.On && vibrateEnabled)
+  io.link <> core.io.link
+  io.pmod <> core.io.pmod
+  core.io.host.mem <> coreHostInterface
+  core.io.input.buttons := (buttonState.asUInt | buttonForceRegister.asUInt).asTypeOf(new InputV0.Buttons)
 
   // Framebuffer writes
   {
-    val framebufferX = RegInit(0.U(log2Ceil(module.io.video.videoWidth).W))
-    val framebufferY = RegInit(0.U(log2Ceil(module.io.video.videoHeight).W))
+    val framebufferX = RegInit(0.U(log2Ceil(core.io.video.videoWidth).W))
+    val framebufferY = RegInit(0.U(log2Ceil(core.io.video.videoHeight).W))
     val framebufferWriteIndex = RegInit(0.U(1.W))
 
-    when (module.io.video.dataEnable && !framebufferInterfaceRead) {
-      // Module framebuffer write and SPI framebuffer read share the same read/write port,
+    when (core.io.video.dataEnable && !framebufferInterfaceRead) {
+      // Core framebuffer write and SPI framebuffer read share the same read/write port,
       // so ensure that they're not activated at the same time (so they can be inferred correctly).
-      val address = (framebufferY * module.io.video.videoWidth.U(10.W)) + framebufferX
+      val address = (framebufferY * core.io.video.videoWidth.U(10.W)) + framebufferX
       for (i <- 0 until 2) {
         framebuffers(i).readwritePorts(0).enable := (i.U === framebufferWriteIndex)
         framebuffers(i).readwritePorts(0).address := address
         framebuffers(i).readwritePorts(0).isWrite := true.B
-        framebuffers(i).readwritePorts(0).writeData := module.io.video.data.asUInt
+        framebuffers(i).readwritePorts(0).writeData := core.io.video.data.asUInt
       }
     }
 
-    val vblankEdge = module.io.video.vblank && !RegNext(module.io.video.vblank)
-    val hblankEdge = module.io.video.hblank && !RegNext(module.io.video.hblank)
+    val vblankEdge = core.io.video.vblank && !RegNext(core.io.video.vblank)
+    val hblankEdge = core.io.video.hblank && !RegNext(core.io.video.hblank)
     when (vblankEdge) {
       regLastFrameComplete := framebufferWriteIndex
       framebufferWriteIndex := !framebufferWriteIndex
     }
 
-    when (module.io.video.vblank) {
+    when (core.io.video.vblank) {
       // Frame ended
       framebufferX := 0.U
       framebufferY := 0.U
-    } .elsewhen (module.io.video.hblank) {
+    } .elsewhen (core.io.video.hblank) {
       // Line ended
       when (hblankEdge) {
         framebufferX := 0.U
         framebufferY := framebufferY + 1.U
       }
-    } .elsewhen (module.io.video.dataEnable) {
+    } .elsewhen (core.io.video.dataEnable) {
       framebufferX := framebufferX + 1.U
     }
   }
@@ -733,14 +713,14 @@ class HandheldTop[T <: Module with HandheldModule](moduleFactory: () => T, revis
   // N.B. Audio synchronization happens above.
 
   // Cartridge
-  io.cartridge <> module.io.cartridge
+  io.cartridge <> core.io.cartridge
   // Rev1 and Rev2 only
-  io.cartridge3V3Enable := RegNext(module.io.cartridge.enabled && !io.cartridge.switch)
-  io.cartridge5V0Enable := RegNext(module.io.cartridge.enabled && io.cartridge.switch)
+  io.cartridge3V3Enable := RegNext(core.io.cartridge.enabled && !io.cartridge.switch)
+  io.cartridge5V0Enable := RegNext(core.io.cartridge.enabled && io.cartridge.switch)
 
   // Memories
-  io.sram <> module.io.sram
-  io.sdram <> module.io.sdram
+  io.sram <> core.io.sram
+  io.sdram <> core.io.sdram
 }
 
 case class Revision(

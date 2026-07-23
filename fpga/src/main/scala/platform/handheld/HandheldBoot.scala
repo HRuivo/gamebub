@@ -12,12 +12,14 @@ import lib.mem.RegisterMap
 import chisel3.simulator.PeekPokeAPI.TestableData
 import gba.MmioMap.ReadFn
 import xilinx.MMCM
+import net.gamebub.framework.Core
+import net.gamebub.framework.CoreIo
 
-class HandheldBoot extends Module with HandheldModule {
+class HandheldBoot extends Module with Core {
     val mmcmVcoHz = 50_000_000.toDouble / 3 * 56.375
     val displayDivider = (mmcmVcoHz / ClocksV0.getClockDisplayHz(1.0 / 60.0)._1).floor.toInt
 
-    val io = IO(new HandheldIo {
+    val io = IO(new CoreIo {
         val clocks = new ClocksV0(
             clockSystemHz = (mmcmVcoHz / 56).toInt,
             clockDisplayHz = (mmcmVcoHz / displayDivider).toInt,
