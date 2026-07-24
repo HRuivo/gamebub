@@ -10,6 +10,7 @@ import net.gamebub.framework.interface._
 import lib.util.FractionalDivider
 import platform.handheld.display.DisplayDriverIO
 import platform.handheld.display.ILI9806E
+import platform.handheld.display.ILI9488
 
 object HandheldTop extends App {
   // Parse arguments.
@@ -41,25 +42,14 @@ object HandheldTop extends App {
         displayHeight = 320,
         displayRotate = true,
         displayColorDepth = 6,
-        displayDriverFactory = (sourceFramePeriod, _) => {
-          val config = AdaptiveDpiDriver.Config(
-            clockHz = 12_288_000,
-            hActive = 320,
-            vActive = 480,
-            variableVsync = true,
-            hSyncMin = 3,
-            hBackPorchMin = 3,
-            hFrontPorchMin = 3,
-            vSyncMin = 1,
-            vBackPorchMin = 2,
-            vFrontPorchMin = 2,
-            // vsync + vbp + vfp < 32
-            vFrontPorchMax = 32 - 1 - 2 - 1,
-          )
-          val driver = Module(new AdaptiveDpiDriver(config, sourceFramePeriod))
+        displayDriverFactory = (sourceFramePeriod, clockHz) => {
+          val driver = Module(new ILI9488(
+            clockHz,
+            sourceFramePeriod,
+          ))
           (driver, driver.io)
         },
-        getClockDisplayHz = (_) => (12_362_000, 12_363_000),
+        getClockDisplayHz = ILI9488.getClockDisplayHz,
         overlayWidth = 240,
         overlayHeight = 160,
       )
