@@ -6,7 +6,6 @@ import _root_.circt.stage.ChiselStage
 import lib.mem.{HandshakeMemoryCdc, MemoryInterface, MemoryMap, RegisterMap}
 import lib.video.{Color, ColorARGB, ColorCorrection, ColorGrayscale}
 import xilinx.{XpmCdcHandshake, XpmCdcSingle, XpmCdcSyncRst}
-import xilinx.MMCM
 import net.gamebub.framework.interface._
 
 object HandheldTop extends App {
@@ -25,7 +24,7 @@ object HandheldTop extends App {
       .asInstanceOf[Module with HandheldModule]
 
   ChiselStage.emitSystemVerilogFile(
-    new HandheldTop(moduleFactory(), getRevision(argRevision)),
+    new HandheldTop(moduleFactory, getRevision(argRevision)),
     argRest.toArray,
     firtoolOpts = Array(
       "--preserve-aggregate=1d-vec",
@@ -53,9 +52,10 @@ object HandheldTop extends App {
           // vsync + vbp + vfp < 32
           vFrontPorchMax = 32 - 1 - 2 - 1,
         ),
+        clockDisplayHzMin = 12_362_000,
+        clockDisplayHzMax = 12_363_000,
         overlayWidth = 240,
         overlayHeight = 160,
-        dpiClockDivider = 76,
         audioMclkFactor = 256,
       )
       case "3" => Revision(
@@ -74,9 +74,10 @@ object HandheldTop extends App {
           vBackPorchMin = 4,
           vFrontPorchMin = 4,
         ),
+        clockDisplayHzMin = 26_099_000,
+        clockDisplayHzMax = 26_100_000,
         overlayWidth = 360,
         overlayHeight = 240,
-        dpiClockDivider = 36,
         audioMclkFactor = 544,
       )
       case "4" => Revision(
@@ -98,9 +99,10 @@ object HandheldTop extends App {
           vFrontPorchMin = 10,
           vFrontPorchMax = 255,
         ),
+        clockDisplayHzMin = 29_361_000,
+        clockDisplayHzMax = 29_362_000,
         overlayWidth = 360,
         overlayHeight = 240,
-        dpiClockDivider = 32,
         audioMclkFactor = 608,
       )
       case _ => throw new IllegalArgumentException("invalid revision " + name)
@@ -110,7 +112,7 @@ object HandheldTop extends App {
 
 /** IO bundle used for a handheld submodule. */
 abstract class HandheldIo extends Bundle {
-  val clocks: ClocksFixedV0
+  val clocks: ClocksV0
   val video: VideoV0
   val audio: AudioV0
   val host: HostV0
@@ -143,8 +145,11 @@ object HandheldVibrate extends ChiselEnum {
  * The outer clock is passed down to the inner module,
  * e.g. 8.3886 MHz for Gameboy.
  */
-class HandheldTop[T <: Module with HandheldModule](genT: => T, revision: Revision) extends Module {
-  val module = Module(genT)
+class HandheldTop[T <: Module with HandheldModule](moduleFactory: () => T, revision: Revision) extends Module {
+  ClocksV0.clockDisplayHzMin = revision.clockDisplayHzMin
+  ClocksV0.clockDisplayHzMax = revision.clockDisplayHzMax
+  val module = Module(moduleFactory())
+
   val io = IO(new Bundle {
     /** Clocking **/
     val clockIn50Mhz = Input(Clock())
@@ -195,32 +200,16 @@ class HandheldTop[T <: Module with HandheldModule](genT: => T, revision: Revisio
     val sram = new SramV0(addressWidth = 18, dataWidth = 16)
 
     // SDRAM
-    val sdramClock = Output(Clock())
     val sdram = new SdramV0(addressWidth = 13, dataWidth = 16, bankWidth = 2, chips = 1)
   })
 
   //////////////////////////////////
-  // Main MMCM
+  // Clocking
   //////////////////////////////////
-  val mmcm = Module(new MMCM(
-    clockInHz = 50_000_000,
-    divide = 3,
-    multiply = 56.375,
-    clockOutConfig = Seq(
-      MMCM.ClockOut(module.io.clocks.sysDivider),
-      MMCM.ClockOut(module.io.clocks.sdramDivider),
-      MMCM.ClockOut(revision.dpiClockDivider),
-      MMCM.ClockOut(5), // SPI, ~188 MHz
-    )
-  ))
-  mmcm.io.clockIn := io.clockIn50Mhz
-  mmcm.io.powerDown := false.B
-  io.clockOutLocked := mmcm.io.locked
-  io.clockOutSys := mmcm.io.clockOuts(0)
-  val sdramClock = mmcm.io.clockOuts(1)
-  io.clockOutDpi := mmcm.io.clockOuts(2)
-  val clockSpi = mmcm.io.clockOuts(3)
-  io.sdramClock := sdramClock
+  io.clockOutLocked := module.io.clocks.locked
+  io.clockOutSys := module.io.clocks.clockOutSystem
+  io.clockOutDpi := module.io.clocks.clockOutDisplay
+  val clockSpi = module.io.clocks.clockOutSpi
 
   //////////////////////////////////
   // MCU Communication
@@ -673,6 +662,7 @@ class HandheldTop[T <: Module with HandheldModule](genT: => T, revision: Revisio
   //////////////////////////////////
   // Submodule Connections
   //////////////////////////////////
+  module.io.clocks.clockIn50M := io.clockIn50Mhz
   module.io.host.enable := controlRegister.moduleEnable
   module.io.host.reset := !controlRegister.moduleReset
   val vibrateEnabled = module.io.host.enable && controlRegister.vibrate && !displayRegister.docked
@@ -732,7 +722,6 @@ class HandheldTop[T <: Module with HandheldModule](genT: => T, revision: Revisio
 
   // Memories
   io.sram <> module.io.sram
-  module.io.clocks.clockSdram := sdramClock
   io.sdram <> module.io.sdram
 }
 
@@ -744,11 +733,12 @@ case class Revision(
   displayColorDepth: Int,
   dpiConfig: AdaptiveDpiDriver.Config,
 
+  clockDisplayHzMin: Int,
+  clockDisplayHzMax: Int,
+
   overlayWidth: Int,
   overlayHeight: Int,
 
-  /// The AV clock divider
-  dpiClockDivider: Int,
   /// The multipler to go from audio sample rate (48kHz) to MCLK
   audioMclkFactor: Int,
 )

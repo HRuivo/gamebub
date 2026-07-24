@@ -12,6 +12,7 @@ import net.gamebub.framework.interface._
 import lib.mem.PipelineMemoryArbiter
 import lib.mem.sdram.BurstSdramController
 import lib.mem.PipelineMemoryBurstCdc
+import xilinx.MMCM
 
 
 object HandheldGba {
@@ -65,15 +66,21 @@ object HandheldGba {
       }
     }
   }
+
+  val mmcmVcoHz = 50_000_000.toDouble / 3 * 56.375
 }
 
 
-/**
- * Clocked by a 16777216 Hz clock.
- */
+
 class HandheldGba extends Module with HandheldModule {
+  val displayDivider = (HandheldGba.mmcmVcoHz / ClocksV0.clockDisplayHzMin).floor.toInt
   val io = IO(new HandheldIo {
-    val clocks = new ClocksFixedV0(sysDivider = 56, sdramDivider = 14)
+    val clocks = new ClocksV0(
+      // ~ 16.7772 MHz
+      clockSystemHz = (HandheldGba.mmcmVcoHz / 56).toInt,
+      clockDisplayHz = (HandheldGba.mmcmVcoHz / displayDivider).toInt,
+      clockSpiHz = (HandheldGba.mmcmVcoHz / 5).toInt,
+    )
     val video = new VideoV0(
       videoWidth = 240,
       videoHeight = 160,
@@ -89,6 +96,27 @@ class HandheldGba extends Module with HandheldModule {
     val sram = new SramV0()
     val sdram = new SdramV0()
   })
+
+  // Main MMCM
+  val mmcm = Module(new MMCM(
+      clockInHz = 50_000_000,
+      divide = 3,
+      multiply = 56.375,
+      clockOutConfig = Seq(
+          MMCM.ClockOut(56), // System
+          MMCM.ClockOut(14),  // SDRAM (4x)
+          MMCM.ClockOut(displayDivider),  // Display
+          MMCM.ClockOut(5),   // Host SPI
+      )
+  ))
+  mmcm.io.clockIn := io.clocks.clockIn50M
+  mmcm.io.powerDown := false.B
+  io.clocks.clockOutSystem := mmcm.io.clockOuts(0)
+  val clockSdram = mmcm.io.clockOuts(1)
+  val clockSdramHz = io.clocks.clockSystemHz * 4
+  io.clocks.clockOutDisplay := mmcm.io.clockOuts(2)
+  io.clocks.clockOutSpi := mmcm.io.clockOuts(3)
+  io.clocks.locked := mmcm.io.locked
 
   val configRegEmuCart = RegInit(0.U.asTypeOf(new EmulatedCartridge.Config))
   val configRegRomSize = RegInit(0.U(25.W))
@@ -384,12 +412,12 @@ class HandheldGba extends Module with HandheldModule {
   sramController.io.mem.address := sramArbiter.io.target.address >> 1
 
   // SDRAM controller
-  withClock(io.clocks.clockSdram) {
+  withClock(clockSdram) {
     val config = BurstSdramController.Config(
-      clockFrequency = io.clocks.clockSdramHz,
+      clockFrequency = clockSdramHz,
       accessLength = 2,
-      timeRsc = (2 * 1_000_000_000) / io.clocks.clockSdramHz, /* 2 clocks */
-      timeWr = (2 * 1_000_000_000) / io.clocks.clockSdramHz, /* 2 clocks */
+      timeRsc = (2 * 1_000_000_000) / clockSdramHz, /* 2 clocks */
+      timeWr = (2 * 1_000_000_000) / clockSdramHz, /* 2 clocks */
       enableBurst = true,
     )
     val controller = Module(new BurstSdramController(config))
@@ -403,7 +431,7 @@ class HandheldGba extends Module with HandheldModule {
     cdc.io.initiator <> sdramArbiter.io.target
     cdc.io.target <> controller.io.mem
     
-    io.sdram.clock := io.clocks.clockSdram
+    io.sdram.clock := clockSdram
     io.sdram.cke := controller.io.signals.cke
 
     io.sdram.cs := controller.io.signals.cs

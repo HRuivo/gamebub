@@ -11,10 +11,18 @@ import chisel3.util.SRAM
 import lib.mem.RegisterMap
 import chisel3.simulator.PeekPokeAPI.TestableData
 import gba.MmioMap.ReadFn
+import xilinx.MMCM
 
 class HandheldBoot extends Module with HandheldModule {
+    val mmcmVcoHz = 50_000_000.toDouble / 3 * 56.375
+    val displayDivider = (mmcmVcoHz / ClocksV0.clockDisplayHzMin).floor.toInt
+
     val io = IO(new HandheldIo {
-        val clocks = new ClocksFixedV0(sysDivider = 56, sdramDivider = 14)
+        val clocks = new ClocksV0(
+            clockSystemHz = (mmcmVcoHz / 56).toInt,
+            clockDisplayHz = (mmcmVcoHz / displayDivider).toInt,
+            clockSpiHz = (mmcmVcoHz / 5).toInt,
+        )
         val video = new VideoV0(
             videoWidth = 240,
             videoHeight = 160,
@@ -34,6 +42,24 @@ class HandheldBoot extends Module with HandheldModule {
     })
 
     stubUnused()
+
+    // Main MMCM
+    val mmcm = Module(new MMCM(
+        clockInHz = 50_000_000,
+        divide = 3,
+        multiply = 56.375,
+        clockOutConfig = Seq(
+            MMCM.ClockOut(56), // System
+            MMCM.ClockOut(displayDivider), // Display
+            MMCM.ClockOut(5),  // Host SPI
+        )
+    ))
+    mmcm.io.clockIn := io.clocks.clockIn50M
+    mmcm.io.powerDown := false.B
+    io.clocks.clockOutSystem := mmcm.io.clockOuts(0)
+    io.clocks.clockOutDisplay := mmcm.io.clockOuts(1)
+    io.clocks.clockOutSpi := mmcm.io.clockOuts(2)
+    io.clocks.locked := mmcm.io.locked
 
     // Logo animation
     val logo = Module(new Logo(io.video))
