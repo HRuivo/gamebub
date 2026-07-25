@@ -28,7 +28,7 @@ class Logo(video: VideoV0) extends Module {
 
   val regAnimation = RegInit(0.U.asTypeOf(new LogoAnimationState))
   val regLogoStartY = RegInit(26.U(8.W))
-  val (_, frame) = Counter(true.B, 16 * 1024 * 1024 / 64)
+  val (_, frame) = Counter(true.B, 16 * 1024 * 1024 / 60)
 
   io.registers <> RegisterMap(
     addressWidth = 8,

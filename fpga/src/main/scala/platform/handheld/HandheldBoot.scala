@@ -27,7 +27,7 @@ class HandheldBoot extends Module with HandheldModule {
             videoWidth = 240,
             videoHeight = 160,
             colorDepth = 5,
-            framePeriod = 1.0 / 64.0,
+            framePeriod = 1.0 / 60.0,
         )
         val audio = new AudioV0()
         val host = new HostV0(overlayColorDepth = ColorARGB.argb1555())
