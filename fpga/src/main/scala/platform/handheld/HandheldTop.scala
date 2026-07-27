@@ -8,6 +8,7 @@ import lib.video.{Color, ColorARGB, ColorCorrection, ColorGrayscale}
 import xilinx.{XpmCdcHandshake, XpmCdcSingle, XpmCdcSyncRst}
 import net.gamebub.framework.interface._
 import lib.util.FractionalDivider
+import platform.handheld.display.DisplayDriverIO
 
 object HandheldTop extends App {
   // Parse arguments.
@@ -39,22 +40,25 @@ object HandheldTop extends App {
         displayHeight = 320,
         displayRotate = true,
         displayColorDepth = 6,
-        dpiConfig = AdaptiveDpiDriver.Config(
-          clockHz = 12_288_000,
-          hActive = 320,
-          vActive = 480,
-          variableVsync = true,
-          hSyncMin = 3,
-          hBackPorchMin = 3,
-          hFrontPorchMin = 3,
-          vSyncMin = 1,
-          vBackPorchMin = 2,
-          vFrontPorchMin = 2,
-          // vsync + vbp + vfp < 32
-          vFrontPorchMax = 32 - 1 - 2 - 1,
-        ),
-        clockDisplayHzMin = 12_362_000,
-        clockDisplayHzMax = 12_363_000,
+        displayDriverFactory = (sourceFramePeriod) => {
+          val config = AdaptiveDpiDriver.Config(
+            clockHz = 12_288_000,
+            hActive = 320,
+            vActive = 480,
+            variableVsync = true,
+            hSyncMin = 3,
+            hBackPorchMin = 3,
+            hFrontPorchMin = 3,
+            vSyncMin = 1,
+            vBackPorchMin = 2,
+            vFrontPorchMin = 2,
+            // vsync + vbp + vfp < 32
+            vFrontPorchMax = 32 - 1 - 2 - 1,
+          )
+          val driver = Module(new AdaptiveDpiDriver(config, sourceFramePeriod))
+          (driver, driver.io)
+        },
+        getClockDisplayHz = (_) => (12_362_000, 12_363_000),
         overlayWidth = 240,
         overlayHeight = 160,
       )
@@ -62,20 +66,23 @@ object HandheldTop extends App {
         displayWidth = 800,
         displayHeight = 480,
         displayColorDepth = 6,
-        dpiConfig = AdaptiveDpiDriver.Config(
-          clockHz = 26_100_000,
-          hActive = 800,
-          vActive = 480,
-          variableVsync = false,
-          hSyncMin = 2,
-          hBackPorchMin = 4,
-          hFrontPorchMin = 4,
-          vSyncMin = 2,
-          vBackPorchMin = 4,
-          vFrontPorchMin = 4,
-        ),
-        clockDisplayHzMin = 26_099_000,
-        clockDisplayHzMax = 26_100_000,
+        displayDriverFactory = (sourceFramePeriod) => {
+          val config = AdaptiveDpiDriver.Config(
+            clockHz = 26_100_000,
+            hActive = 800,
+            vActive = 480,
+            variableVsync = false,
+            hSyncMin = 2,
+            hBackPorchMin = 4,
+            hFrontPorchMin = 4,
+            vSyncMin = 2,
+            vBackPorchMin = 4,
+            vFrontPorchMin = 4,
+          )
+          val driver = Module(new AdaptiveDpiDriver(config, sourceFramePeriod))
+          (driver, driver.io)
+        },
+        getClockDisplayHz = (_) => (26_099_000, 26_100_000),
         overlayWidth = 360,
         overlayHeight = 240,
       )
@@ -85,21 +92,24 @@ object HandheldTop extends App {
         displayRotate = true,
         displayOffsetX = -28,
         displayColorDepth = 8,
-        dpiConfig = AdaptiveDpiDriver.Config(
-          clockHz = 29_362_000,
-          hActive = 480,
-          vActive = 800,
-          variableVsync = true,
-          hSyncMin = 4,
-          hBackPorchMin = 10,
-          hFrontPorchMin = 47,
-          vSyncMin = 4,
-          vBackPorchMin = 20,
-          vFrontPorchMin = 10,
-          vFrontPorchMax = 255,
-        ),
-        clockDisplayHzMin = 29_361_000,
-        clockDisplayHzMax = 29_362_000,
+        displayDriverFactory = (sourceFramePeriod) => {
+          val config = AdaptiveDpiDriver.Config(
+            clockHz = 29_362_000,
+            hActive = 480,
+            vActive = 800,
+            variableVsync = true,
+            hSyncMin = 4,
+            hBackPorchMin = 10,
+            hFrontPorchMin = 47,
+            vSyncMin = 4,
+            vBackPorchMin = 20,
+            vFrontPorchMin = 10,
+            vFrontPorchMax = 255,
+          )
+          val driver = Module(new AdaptiveDpiDriver(config, sourceFramePeriod))
+          (driver, driver.io)
+        },
+        getClockDisplayHz = (_) => (29_361_000, 29_362_000),
         overlayWidth = 360,
         overlayHeight = 240,
       )
@@ -144,8 +154,7 @@ object HandheldVibrate extends ChiselEnum {
  * e.g. 8.3886 MHz for Gameboy.
  */
 class HandheldTop[T <: Module with HandheldModule](moduleFactory: () => T, revision: Revision) extends Module {
-  ClocksV0.clockDisplayHzMin = revision.clockDisplayHzMin
-  ClocksV0.clockDisplayHzMax = revision.clockDisplayHzMax
+  ClocksV0.getClockDisplayHz = revision.getClockDisplayHz
   val module = Module(moduleFactory())
 
   val io = IO(new Bundle {
@@ -472,12 +481,11 @@ class HandheldTop[T <: Module with HandheldModule](moduleFactory: () => T, revis
     }
 
     // DPI video signal output
-    val dpiDriver = Module(new AdaptiveDpiDriver(
-      config = revision.dpiConfig,
-      sourceFramePeriod = module.io.video.framePeriod,
-    ))
-    dpiDriver.io.lastRenderedFrame := lastFrameComplete
-    io.lcd := dpiDriver.io.signals
+    val (dpiDriver, dpiDriverIo) = revision.displayDriverFactory(
+      /* sourceFramePeriod = */ module.io.video.framePeriod,
+    )
+    dpiDriverIo.lastRenderedFrame := lastFrameComplete
+    io.lcd := dpiDriverIo.signals
     val lcdData = videoOutput.convertTo(
       ColorARGB(0,
         revision.displayColorDepth,
@@ -562,11 +570,11 @@ class HandheldTop[T <: Module with HandheldModule](moduleFactory: () => T, revis
       val screenWidth = revision.displayWidth
       val screenHeight = revision.displayHeight
 
-      val dpiX = if (revision.displayRotate) dpiDriver.io.pixelY else dpiDriver.io.pixelX
-      val dpiY = if (revision.displayRotate) dpiDriver.io.pixelX else dpiDriver.io.pixelY
+      val dpiX = if (revision.displayRotate) dpiDriverIo.pixelY else dpiDriverIo.pixelX
+      val dpiY = if (revision.displayRotate) dpiDriverIo.pixelX else dpiDriverIo.pixelY
       videoX := dpiX
       videoY := dpiY
-      framebufferIndex := dpiDriver.io.displayFrame
+      framebufferIndex := dpiDriverIo.displayFrame
 
       // Scale and center framebuffer without output video.
       val videoScale = (screenWidth / videoWidth).min(screenHeight / videoHeight)
@@ -766,11 +774,9 @@ case class Revision(
   displayRotate: Boolean = false,
   displayOffsetX: Int = 0,
   displayColorDepth: Int,
-  dpiConfig: AdaptiveDpiDriver.Config,
-
-  clockDisplayHzMin: Int,
-  clockDisplayHzMax: Int,
-
+  displayDriverFactory: (Double) => (Module, DisplayDriverIO),
+  /// A function that returns the clockDisplay clock min Hz and max Hz by frame period
+  getClockDisplayHz: (Double) => (Int, Int),
   overlayWidth: Int,
   overlayHeight: Int,
 )

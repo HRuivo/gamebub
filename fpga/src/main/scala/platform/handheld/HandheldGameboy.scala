@@ -23,7 +23,7 @@ object HandheldGameboy {
 }
 
 class HandheldGameboy extends Module with HandheldModule {
-  val displayDivider = (HandheldGameboy.mmcmVcoHz / ClocksV0.clockDisplayHzMin).floor.toInt
+  val displayDivider = (HandheldGameboy.mmcmVcoHz / ClocksV0.getClockDisplayHz(1.0 / 60.0)._1).floor.toInt
   val io = IO(new HandheldIo {
     val clocks = new ClocksV0(
       // ~ 8.3886 MHz

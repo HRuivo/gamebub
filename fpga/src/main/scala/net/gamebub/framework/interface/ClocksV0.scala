@@ -3,8 +3,11 @@ package net.gamebub.framework.interface
 import chisel3._
 
 object ClocksV0 {
-  var clockDisplayHzMin: Int = 0
-  var clockDisplayHzMax: Int = 0
+  /**
+   * Get the (minimum, maximum) frequency (Hz) for the display clock for the
+   * given frame period.
+   */
+  var getClockDisplayHz: (Double) => (Int, Int) = (_ => ???)
 }
 
 class ClocksV0(

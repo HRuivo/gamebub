@@ -2,6 +2,7 @@ package platform.handheld
 
 import chisel3._
 import chisel3.util._
+import platform.handheld.display.DisplayDriverIO
 
 object AdaptiveDpiDriver {
   case class Config(
@@ -58,17 +59,7 @@ class AdaptiveDpiDriver(
   /** Typical source frame period (seconds)  */
   sourceFramePeriod: Double,
 ) extends Module {
-  val io = IO(new Bundle {
-    val signals = Output(new DpiSignals)
-
-    val pixelX = Output(UInt(log2Ceil(config.hActive).W))
-    val pixelY = Output(UInt(log2Ceil(config.vActive).W))
-
-    /// Last rendered frame index
-    val lastRenderedFrame = Input(UInt(1.W))
-    /// Current display frame index
-    val displayFrame = Output(UInt(1.W))
-  })
+  val io = IO(new DisplayDriverIO(config.hActive, config.vActive))
 
   val hActive = config.hActive
   val vActive = config.vActive

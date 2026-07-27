@@ -73,7 +73,7 @@ object HandheldGba {
 
 
 class HandheldGba extends Module with HandheldModule {
-  val displayDivider = (HandheldGba.mmcmVcoHz / ClocksV0.clockDisplayHzMin).floor.toInt
+  val displayDivider = (HandheldGba.mmcmVcoHz / ClocksV0.getClockDisplayHz(1.0 / 60.0)._1).floor.toInt
   val io = IO(new HandheldIo {
     val clocks = new ClocksV0(
       // ~ 16.7772 MHz

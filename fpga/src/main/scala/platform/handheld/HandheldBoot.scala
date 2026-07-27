@@ -15,7 +15,7 @@ import xilinx.MMCM
 
 class HandheldBoot extends Module with HandheldModule {
     val mmcmVcoHz = 50_000_000.toDouble / 3 * 56.375
-    val displayDivider = (mmcmVcoHz / ClocksV0.clockDisplayHzMin).floor.toInt
+    val displayDivider = (mmcmVcoHz / ClocksV0.getClockDisplayHz(1.0 / 60.0)._1).floor.toInt
 
     val io = IO(new HandheldIo {
         val clocks = new ClocksV0(
