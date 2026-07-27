@@ -186,17 +186,14 @@ class HandheldGameboy extends Module with Core {
   }
   gameboy.io.clockConfig.provide8Mhz := true.B
 
-  val buttonFilter = Module(new ButtonFilter(new InputV0.Buttons))
-  buttonFilter.io.enable := io.host.enable
-  buttonFilter.io.input := io.input.buttons
-  gameboy.io.joypad.a := buttonFilter.io.output.a
-  gameboy.io.joypad.b := buttonFilter.io.output.b
-  gameboy.io.joypad.up := buttonFilter.io.output.up
-  gameboy.io.joypad.down := buttonFilter.io.output.down
-  gameboy.io.joypad.left := buttonFilter.io.output.left
-  gameboy.io.joypad.right := buttonFilter.io.output.right
-  gameboy.io.joypad.start := buttonFilter.io.output.start
-  gameboy.io.joypad.select := buttonFilter.io.output.select
+  gameboy.io.joypad.a := io.input.buttons.a
+  gameboy.io.joypad.b := io.input.buttons.b
+  gameboy.io.joypad.up := io.input.buttons.up
+  gameboy.io.joypad.down := io.input.buttons.down
+  gameboy.io.joypad.left := io.input.buttons.left
+  gameboy.io.joypad.right := io.input.buttons.right
+  gameboy.io.joypad.start := io.input.buttons.start
+  gameboy.io.joypad.select := io.input.buttons.select
 
   // Vibration unused by default.
   io.input.vibrate := InputV0.Vibrate.Off

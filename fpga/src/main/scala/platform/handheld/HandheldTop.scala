@@ -15,6 +15,7 @@ import platform.handheld.display.ILI9488
 import platform.handheld.display.ST7262E43
 import platform.handheld.display.DpiSignals
 import net.gamebub.framework.CoreException
+import lib.util.ButtonFilter
 
 object HandheldTop extends App {
   // Parse arguments.
@@ -487,7 +488,11 @@ class HandheldTop[T <: Core](coreFactory: () => T, revision: Revision) extends M
       controlInterruptPending.buttonEdge := true.B
     }
   }
-  coreInput := (buttonState.asUInt | controlButtonForce.asUInt).asTypeOf(new InputV0.Buttons)
+  // Only pass input through when the core is focused
+  val buttonFilter = Module(new ButtonFilter(new InputV0.Buttons))
+  buttonFilter.io.enable := controlCoreFocus
+  buttonFilter.io.input := (buttonState.asUInt | controlButtonForce.asUInt).asTypeOf(new InputV0.Buttons)
+  coreInput := buttonFilter.io.output
 
   val vibrateEnabled = coreHost.enable && controlVibrate.enable && !controlDock.docked
   io.vibrate := RegNext(coreVibrate === InputV0.Vibrate.On && vibrateEnabled)
