@@ -79,7 +79,7 @@ impl Gameboy {
     /// Prepare to load a new cartridge (physical or emulated)
     fn initialize(&mut self, device: &mut Device) -> Result<(), GameboyError> {
         // Hold in reset
-        device.fpga.write_u32(fpga::REG_CONTROL, 0b0000)?;
+        device.fpga.write_u32(fpga::REG_TEMP_CORE_RESET, 0)?;
 
         // Set configuration
         let is_dmg = kvs::keys::GB_IS_DMG.get().unwrap();
@@ -120,8 +120,8 @@ impl Gameboy {
 impl Bitstream for Gameboy {
     fn reset(&mut self) -> Result<(), fpga::Error> {
         let mut device = Device::lock();
-        device.fpga.write_u32(fpga::REG_CONTROL, 0b0000)?;
-        device.fpga.write_u32(fpga::REG_CONTROL, 0b1010)?;
+        device.fpga.write_u32(fpga::REG_TEMP_CORE_RESET, 0)?;
+        device.fpga.write_u32(fpga::REG_TEMP_CORE_RESET, 1)?;
         Ok(())
     }
 
@@ -209,7 +209,7 @@ impl CoreHandler for Gameboy {
         self.initialize(&mut device).map_err(|e| e.to_string())?;
 
         // Take out of reset before setting registers.
-        let _ = device.fpga.write_u32(fpga::REG_CONTROL, 0b0010);
+        let _ = device.fpga.write_u32(fpga::REG_TEMP_CORE_RESET, 1);
 
         if let Some(rom_header) = self.rom_header.as_ref() {
             // Configure RTC if needed
@@ -246,9 +246,6 @@ impl CoreHandler for Gameboy {
             // Switch to physical cartridge.
             let _ = device.fpga.write_u32(REG_EMU_CART_CONFIG, 0);
         }
-
-        // Resume
-        let _ = device.fpga.write_u32(fpga::REG_CONTROL, 0b1011);
 
         Ok(())
     }
@@ -289,10 +286,6 @@ impl CoreHandler for Gameboy {
                 device.imu.enable_accel().unwrap();
             }
         }
-
-        let _ = device
-            .fpga
-            .write_u32(fpga::REG_CONTROL, 0b1010u32 | ((!paused) as u32));
 
         if paused {
             // Debug output stall stats

@@ -17,18 +17,24 @@ use thiserror::Error;
 
 use crate::device::DisplayMode;
 
-pub const REG_CONTROL: u32 = 0x8000_0000;
-pub const REG_FORCE_BUTTON: u32 = 0x8000_0004;
-pub const REG_DISPLAY: u32 = 0x8000_0008;
-pub const REG_IRQ_ENABLE: u32 = 0x8000_000C;
-pub const REG_IRQ_STATUS: u32 = 0x8000_0010;
-pub const REG_STATUS: u32 = 0x8000_0014;
-pub const REG_COLOR_CORRECT_ENABLE: u32 = 0x8000_0018;
-pub const REG_BUTTON_STATE: u32 = 0x8000_001C;
-pub const REG_OVERLAY_XCTRL: u32 = 0x8000_0100;
-pub const REG_OVERLAY_YCTRL: u32 = 0x8000_0104;
-/// Framebuffer dimensions (read only)
-pub const REG_FB_DIM: u32 = 0x8000_0200;
+pub const REG_INFO_FRAMEWORK_VER: u32 = 0x8000_0000;
+pub const REG_INFO_SYSCLK_HZ: u32 = 0x8000_0004;
+pub const REG_INFO_VIDEO_DIM: u32 = 0x8000_0100;
+pub const REG_INFO_VIDEO_DEPTH: u32 = 0x8000_0104;
+
+pub const REG_CTRL_IRQ_ENABLE: u32 = 0x8000_1000;
+pub const REG_CTRL_IRQ_PENDING: u32 = 0x8000_1004;
+pub const REG_CTRL_BUTTON_FORCE: u32 = 0x8000_1008;
+pub const REG_CTRL_DOCK: u32 = 0x8000_100C;
+pub const REG_CTRL_FOCUS: u32 = 0x8000_1010;
+pub const REG_CTRL_VIBRATE: u32 = 0x8000_1014;
+
+pub const REG_STATUS_BUTTON: u32 = 0x8000_2000;
+pub const REG_STATUS_CART_SWITCH: u32 = 0x8000_2004;
+
+pub const REG_TEMP_CORE_RESET: u32 = 0x8000_F000;
+pub const REG_TEMP_COLOR_CORRECT_ENABLE: u32 = 0x8000_F004;
+
 /// Color correction base
 pub const REG_COLOR_CORRECT_PARAMS: u32 = 0xC000_0000;
 
@@ -197,12 +203,12 @@ where
 
     pub fn enable_interrupt(&mut self, irq: Irq) -> Result<(), Error> {
         self.interrupts |= irq.as_flag();
-        self.write_u32(REG_IRQ_ENABLE, self.interrupts)
+        self.write_u32(REG_CTRL_IRQ_ENABLE, self.interrupts)
     }
 
     pub fn disable_interrupt(&mut self, irq: Irq) -> Result<(), Error> {
         self.interrupts &= !irq.as_flag();
-        self.write_u32(REG_IRQ_ENABLE, self.interrupts)
+        self.write_u32(REG_CTRL_IRQ_ENABLE, self.interrupts)
     }
 
     /// Finds a SPI data driver with the maximum clock speed.
@@ -297,32 +303,6 @@ where
         Ok(u32::from_le_bytes(data))
     }
 
-    /// Configure the drawing bounds of the overlay.
-    pub fn set_overlay_bounds(
-        &mut self,
-        start_x: u8,
-        end_x: u8,
-        scroll_x: u8,
-        start_y: u8,
-        end_y: u8,
-        scroll_y: u8,
-    ) -> Result<(), Error> {
-        let config_x = ((start_x as u32) & 0xFF) << 16
-            | ((end_x as u32) & 0xFF) << 8
-            | ((scroll_x as u32) & 0xFF);
-        let config_y = ((start_y as u32) & 0xFF) << 16
-            | ((end_y as u32) & 0xFF) << 8
-            | ((scroll_y as u32) & 0xFF);
-        self.write_u32(REG_OVERLAY_XCTRL, config_x)?;
-        self.write_u32(REG_OVERLAY_YCTRL, config_y)?;
-        Ok(())
-    }
-
-    /// Hide the overlay by setting drawing bounds to invisible.
-    pub fn hide_overlay(&mut self) -> Result<(), Error> {
-        self.set_overlay_bounds(0, 0, 0, 0, 0, 0)
-    }
-
     /// Write overlay framebuffer.
     pub fn write_overlay(&mut self, offset: u32, data: &[u8]) -> Result<(), Error> {
         let command = SpiCommand::new(FpgaSpiWordSize::Bits16);
@@ -333,11 +313,11 @@ where
 
     /// Get the state of the cartridge slot button.
     pub fn get_cartridge_slot_button(&mut self) -> Result<bool, Error> {
-        Ok((self.read_u32(REG_STATUS)? & 1) != 0)
+        Ok((self.read_u32(REG_STATUS_CART_SWITCH)? & 1) != 0)
     }
 
     pub fn set_display_mode(&mut self, new_mode: DisplayMode) -> Result<(), Error> {
-        self.write_u32(REG_DISPLAY, (new_mode == DisplayMode::External) as u32)
+        self.write_u32(REG_CTRL_DOCK, (new_mode == DisplayMode::External) as u32)
     }
 }
 

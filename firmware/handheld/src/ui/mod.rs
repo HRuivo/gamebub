@@ -210,22 +210,15 @@ impl UI {
                 let mut device = Device::lock();
 
                 let render_start = Instant::now();
-                let device = {
+                {
                     let mut line_renderer = FpgaLineRenderer {
                         device: &mut device,
                         line_buffer: &mut self.framebuffer,
                     };
                     renderer.render_by_line(&mut line_renderer);
-
-                    line_renderer.device
                 };
                 let render_duration = render_start.elapsed();
                 log::info!("Render + display {}ms", render_duration.as_millis() as u32,);
-
-                // XXX: only need to do this when switching overlays
-                let _ = device
-                    .fpga
-                    .set_overlay_bounds(0x0, 0xFF, 0x0, 0x0, 0xFF, 0x0);
 
                 // If we changed the repaint buffer type to force a redraw, change it back.
                 if renderer.repaint_buffer_type() == RepaintBufferType::NewBuffer {

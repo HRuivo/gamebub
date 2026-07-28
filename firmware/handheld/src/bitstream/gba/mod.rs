@@ -185,7 +185,7 @@ impl Gba {
     /// Prepare to load a new cartridge (physical or emulated)
     fn initialize(&mut self, device: &mut Device) -> Result<(), GbaError> {
         // Hold in reset
-        device.fpga.write_u32(fpga::REG_CONTROL, 0b0000)?;
+        device.fpga.write_u32(fpga::REG_TEMP_CORE_RESET, 0)?;
         device.imu.disable_gyro().unwrap();
         device.imu.disable_accel().unwrap();
 
@@ -217,8 +217,8 @@ impl Gba {
 impl Bitstream for Gba {
     fn reset(&mut self) -> Result<(), fpga::Error> {
         let mut device = Device::lock();
-        device.fpga.write_u32(fpga::REG_CONTROL, 0b0000)?;
-        device.fpga.write_u32(fpga::REG_CONTROL, 0b1010)?;
+        device.fpga.write_u32(fpga::REG_TEMP_CORE_RESET, 0)?;
+        device.fpga.write_u32(fpga::REG_TEMP_CORE_RESET, 1)?;
         Ok(())
     }
 
@@ -394,9 +394,6 @@ impl CoreHandler for Gba {
                 .write_u32(REG_EMU_CART_CONFIG, EmulatedCartridgeConfig::DISABLED);
         }
 
-        // Resume
-        device.fpga.write_u32(fpga::REG_CONTROL, 0b1011).unwrap();
-
         Ok(())
     }
 
@@ -445,10 +442,6 @@ impl CoreHandler for Gba {
                 device.imu.enable_accel().unwrap();
             }
         }
-
-        let _ = device
-            .fpga
-            .write_u32(fpga::REG_CONTROL, 0b1010u32 | ((!paused) as u32));
 
         if paused {
             // Debug output stall stats

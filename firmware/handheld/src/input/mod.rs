@@ -222,7 +222,7 @@ impl InputManager {
             };
             let _ = Device::lock()
                 .fpga
-                .write_u32(fpga::REG_FORCE_BUTTON, fpga_buttons);
+                .write_u32(fpga::REG_CTRL_BUTTON_FORCE, fpga_buttons);
         }
         self.last_button_map = buttons;
     }

@@ -109,7 +109,9 @@ pub mod presets {
 impl ColorCorrection {
     pub fn configure(&self, device: &mut Device) -> Result<(), fpga::Error> {
         // Enable corrections
-        device.fpga.write_u32(fpga::REG_COLOR_CORRECT_ENABLE, 1)?;
+        device
+            .fpga
+            .write_u32(fpga::REG_TEMP_COLOR_CORRECT_ENABLE, 1)?;
 
         fn make_gamma_table(table: &mut [u16], gamma: f32, luminance: f32, depth: usize) {
             for i in 0..table.len() {

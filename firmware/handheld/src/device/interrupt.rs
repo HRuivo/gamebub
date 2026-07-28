@@ -177,11 +177,11 @@ impl Device<'_> {
                         }
 
                         // FPGA IRQs
-                        let fpga_irq = device.fpga.read_u32(fpga::REG_IRQ_STATUS).unwrap();
+                        let fpga_irq = device.fpga.read_u32(fpga::REG_CTRL_IRQ_PENDING).unwrap();
                         if fpga_irq != 0 {
                             device
                                 .fpga
-                                .write_u32(fpga::REG_IRQ_STATUS, fpga_irq)
+                                .write_u32(fpga::REG_CTRL_IRQ_PENDING, fpga_irq)
                                 .unwrap();
                             worker::send(worker::Message::FpgaIrq(fpga_irq));
                         }

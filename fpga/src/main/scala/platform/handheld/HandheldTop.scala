@@ -167,7 +167,8 @@ class HandheldTop[T <: Core](coreFactory: () => T, revision: Revision) extends M
   // Clocks
   val (
     clockSpi: Clock,
-    clockDisplayHz: Int
+    clockDisplayHz: Int,
+    clockSystemHz: Int,
   ) = core.getInterface("clocks") match {
     case Some(clocks: ClocksV0) => {
       clocks.clockIn50M := io.clockIn50Mhz
@@ -178,6 +179,7 @@ class HandheldTop[T <: Core](coreFactory: () => T, revision: Revision) extends M
       (
         clocks.clockOutSpi,
         clocks.clockDisplayHz,
+        clocks.clockSystemHz,
       )
     }
     case Some(x) => throw new CoreException("Unknown 'clocks': " + x.getClass())
@@ -378,41 +380,21 @@ class HandheldTop[T <: Core](coreFactory: () => T, revision: Revision) extends M
     clockSpiLocked := RegNext(!spi.io.clockSpiPowerDown)
   }
 
-  val controlRegister = RegInit(0.U.asTypeOf(new Bundle() {
+  val controlCoreFocus = RegInit(false.B)
+  val controlVibrate = RegInit(0.U.asTypeOf(new Bundle() {
     /** True to enable vibration (if the core uses it) */
-    val vibrate = Bool()
-    /** Whether the core is currently in vblank. (TODO make read-only) */
-    val coreVblank = Bool()
-    /** Active-low reset for the inner core. */
-    val coreReset = Bool()
-    /** Active-high enable for the inner core. */
-    val coreEnable = Bool()
+    val enable = Bool()
   }))
-  val displayRegister = RegInit(0.U.asTypeOf(new Bundle() {
+  val controlInterruptEnable = RegInit(0.U.asTypeOf(new HandheldInterrupts))
+  val controlInterruptPending = RegInit(0.U.asTypeOf(new HandheldInterrupts))
+  val controlButtonForce = RegInit(0.U.asTypeOf(new InputV0.Buttons))
+  val controlDock = RegInit(0.U.asTypeOf(new Bundle() {
+    /** True if the device is docked */
     val docked = Bool()
   }))
-  /// Buttons that are forced down by MCU
-  val buttonForceRegister = RegInit(0.U.asTypeOf(new InputV0.Buttons))
-  val interruptEnable = RegInit(0.U.asTypeOf(new HandheldInterrupts))
-  val interruptFlags = RegInit(0.U.asTypeOf(new HandheldInterrupts))
-  val statusRegister = Cat(
-    // 0: cartridge switch state
-    RegNext(RegNext(io.cartridge.switch)),
-  )
-  val colorCorrectionRegister = RegInit(0.U.asTypeOf(new Bundle() {
-    val enableColorCorrections = Bool()
-  }))
+  val controlCoreRun = RegInit(false.B)
+  val controlColorCorrection = RegInit(false.B)
 
-  val overlayXControlRegister = RegInit(0.U.asTypeOf(new Bundle() {
-    val start = UInt(8.W)
-    val end = UInt(8.W)
-    val scroll = UInt(8.W)
-  }))
-  val overlayYControlRegister = RegInit(0.U.asTypeOf(new Bundle() {
-    val start = UInt(8.W)
-    val end = UInt(8.W)
-    val scroll = UInt(8.W)
-  }))
   /// Synchronized physical button state (without MCU force override)
   val buttonState = Wire(new InputV0.Buttons)
 
@@ -420,32 +402,40 @@ class HandheldTop[T <: Core](coreFactory: () => T, revision: Revision) extends M
     addressWidth = 16,
     dataWidth = 32,
     entries = Seq(
-      0x0 -> RegisterMap.Entry.rw(controlRegister),
-      0x4 -> RegisterMap.Entry.rw(buttonForceRegister),
-      0x8 -> RegisterMap.Entry.rw(displayRegister),
-      0xC -> RegisterMap.Entry.rw(interruptEnable),
-      0x10 -> RegisterMap.Entry(
-        interruptFlags.getWidth,
-        read = RegisterMap.ReadFn((_: Bool) => interruptFlags.asUInt),
+      // Read-only informational registers
+      // Framework version
+      0x0000 -> RegisterMap.Entry.r("hB0000001".U),
+      // System clock frequency (Hz)
+      0x0004 -> RegisterMap.Entry.r(clockSystemHz.U),
+      // Video dimensions
+      0x0100 -> RegisterMap.Entry.r(Cat(videoWidth.U(16.W), videoHeight.U(16.W))),
+      // Video color depth
+      0x0104 -> RegisterMap.Entry.r(videoColorDepth.U),
+
+      // Framework control
+      0x1000 -> RegisterMap.Entry.rw(controlInterruptEnable),
+      0x1004 -> RegisterMap.Entry(
+        controlInterruptPending.getWidth,
+        read = RegisterMap.ReadFn((_: Bool) => controlInterruptPending.asUInt),
         write = RegisterMap.WriteFn((write: Bool, data: UInt) =>
           when (write) {
             // Write set bits to ack interrupts.
-            interruptFlags := (interruptFlags.asUInt & (~data).asUInt).asTypeOf(interruptFlags)
+            controlInterruptPending := (controlInterruptPending.asUInt & (~data).asUInt).asTypeOf(controlInterruptPending)
           }
         ),
       ),
-      0x14 -> RegisterMap.Entry.r(statusRegister),
-      0x18 -> RegisterMap.Entry.rw(colorCorrectionRegister),
-      0x1C -> RegisterMap.Entry.r(buttonState),
-      // Overlay control
-      0x100 -> RegisterMap.Entry.rw(overlayXControlRegister),
-      0x104 -> RegisterMap.Entry.rw(overlayYControlRegister),
-      // Framebuffer dimensions
-      0x200 -> RegisterMap.Entry.r(
-        Cat(videoWidth.U(16.W), videoHeight.U(16.W))),
-      // Stats
-      0x300 -> RegisterMap.Entry.r(0.U),
-      0x304 -> RegisterMap.Entry.r(0.U),
+      0x1008 -> RegisterMap.Entry.w(controlButtonForce),
+      0x100C -> RegisterMap.Entry.w(controlDock),
+      0x1010 -> RegisterMap.Entry.w(controlCoreFocus),
+      0x1014 -> RegisterMap.Entry.w(controlVibrate),
+
+      // Framework status
+      0x2000 -> RegisterMap.Entry.r(buttonState),
+      0x2004 -> RegisterMap.Entry.r(RegNext(RegNext(io.cartridge.switch))),
+
+      // Temporary
+      0xF000 -> RegisterMap.Entry.w(controlCoreRun),
+      0xF004 -> RegisterMap.Entry.w(controlColorCorrection),
     )
   )
 
@@ -469,21 +459,19 @@ class HandheldTop[T <: Core](coreFactory: () => T, revision: Revision) extends M
       0xC00.U(12.W) -> colorCorrectInterface,
     ))
 
-  controlRegister.coreVblank := coreVideo.vblank
   when (spi.io.debugRequestOverflow) {
-    interruptFlags.spiRequestFifoOverflow := true.B
-
+    controlInterruptPending.spiRequestFifoOverflow := true.B
   }
   when (spi.io.debugResponseUnderflow) {
-    interruptFlags.spiResponseFifoUnderflow := true.B
+    controlInterruptPending.spiResponseFifoUnderflow := true.B
   }
 
   //////////////////////////////////
   // Interrupts
   //////////////////////////////////
-  io.mcuIrq := (interruptFlags.asUInt & interruptEnable.asUInt).orR
+  io.mcuIrq := (controlInterruptPending.asUInt & controlInterruptEnable.asUInt).orR
   when (coreVideo.vblank && !RegNext(coreVideo.vblank)) {
-    interruptFlags.coreVblank := true.B
+    controlInterruptPending.coreVblank := true.B
   }
 
   //////////////////////////////////
@@ -496,18 +484,18 @@ class HandheldTop[T <: Core](coreFactory: () => T, revision: Revision) extends M
 
     when (regButtons.asUInt =/= RegNext(regButtons.asUInt)) {
       // Button edge, mark interrupt
-      interruptFlags.buttonEdge := true.B
+      controlInterruptPending.buttonEdge := true.B
     }
   }
-  coreInput := (buttonState.asUInt | buttonForceRegister.asUInt).asTypeOf(new InputV0.Buttons)
+  coreInput := (buttonState.asUInt | controlButtonForce.asUInt).asTypeOf(new InputV0.Buttons)
 
-  val vibrateEnabled = coreHost.enable && controlRegister.vibrate && !displayRegister.docked
+  val vibrateEnabled = coreHost.enable && controlVibrate.enable && !controlDock.docked
   io.vibrate := RegNext(coreVibrate === InputV0.Vibrate.On && vibrateEnabled)
 
   //////////////////////////////////
   // Video
   //////////////////////////////////
-  io.hdmiEnable := displayRegister.docked
+  io.hdmiEnable := controlDock.docked
 
   // Double buffering
   val framebuffers = (0 until 2).map(_ =>
@@ -529,7 +517,7 @@ class HandheldTop[T <: Core](coreFactory: () => T, revision: Revision) extends M
   // Keep HDMI MMCM powered for a few more cycles after switching away
   // from it to ensure the clock mux functions correctly.
   val hdmiClockPowerTimer = RegInit(0.U(3.W))
-  when (displayRegister.docked) {
+  when (controlDock.docked) {
     hdmiClockPowerTimer := 7.U
   } .elsewhen (hdmiClockPowerTimer > 0.U) {
     hdmiClockPowerTimer := hdmiClockPowerTimer - 1.U
@@ -561,7 +549,7 @@ class HandheldTop[T <: Core](coreFactory: () => T, revision: Revision) extends M
 
     // Color corrections
     val colorCorrector = Module(new ColorCorrection(inputDepth = 5, outputDepth = 6))
-    colorCorrector.io.enable := XpmCdcSingle(clock, colorCorrectionRegister.enableColorCorrections)
+    colorCorrector.io.enable := XpmCdcSingle(clock, controlColorCorrection)
     colorCorrector.io.in := framebufferRead
     val framebufferColor = colorCorrector.io.out
 
@@ -601,9 +589,6 @@ class HandheldTop[T <: Core](coreFactory: () => T, revision: Revision) extends M
     }
 
     // Similar for overlay framebuffer.
-    val overlayXControl = XpmCdcHandshake.continuous(clock, overlayXControlRegister)
-    val overlayYControl = XpmCdcHandshake.continuous(clock, overlayYControlRegister)
-
     overlayFramebuffer.readPorts(0).enable := true.B
     overlayFramebuffer.readPorts(0).address := overlayReadAddress
     val overlayRead = RegNext(RegNext(overlayFramebuffer.readPorts(0).data))
@@ -649,7 +634,7 @@ class HandheldTop[T <: Core](coreFactory: () => T, revision: Revision) extends M
     io.hdmiRgb := videoOutput.convertTo(ColorARGB(0, 8, 8, 8)).asUInt
     val regHdmiFrame = RegInit(0.U(1.W))
 
-    val hdmiEnable = XpmCdcSingle(clock, displayRegister.docked)
+    val hdmiEnable = XpmCdcSingle(clock, controlDock.docked)
     when (hdmiEnable) {
       dpiDriver.reset := true.B
       val screenWidth = 720
@@ -893,8 +878,8 @@ class HandheldTop[T <: Core](coreFactory: () => T, revision: Revision) extends M
   io.cartridge3V3Enable := RegNext(io.cartridge.enabled && !io.cartridge.switch)
   io.cartridge5V0Enable := RegNext(io.cartridge.enabled && io.cartridge.switch)
 
-  coreHost.enable := controlRegister.coreEnable
-  coreHost.reset := !controlRegister.coreReset
+  coreHost.enable := controlCoreFocus
+  coreHost.reset := !controlCoreRun
 }
 
 case class Revision(

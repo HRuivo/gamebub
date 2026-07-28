@@ -14,7 +14,7 @@ use crate::{
     bitstream,
     core::{info::CoreFile, CoreError::*},
     device::{
-        drivers::fpga::{SpiCommand, MAX_SPI_READ_CLOCK},
+        drivers::fpga::{self, SpiCommand, MAX_SPI_READ_CLOCK},
         Device,
     },
     ui,
@@ -216,6 +216,9 @@ impl CoreManager {
     }
 
     pub fn focus_changed(&mut self, has_focus: bool) {
+        let _ = Device::lock()
+            .fpga
+            .write_u32(fpga::REG_CTRL_FOCUS, has_focus as u32);
         self.get_core_handler().unwrap().on_focus_changed(has_focus);
     }
 
@@ -275,19 +278,20 @@ impl CoreManager {
         // TODO: replace with generic loading sequence
 
         let result = self.get_core_handler().unwrap().on_before_run();
-        match result {
-            Ok(()) => {
-                // Clear loading bar
-                ui::send(ui::Message::EnterGame);
-                self.stage = Stage::Running;
-            }
-            Err(err) => {
-                self.reset_state();
-                bitstream::program_boot();
-                ui::send(ui::Message::CoreLoadError(err.to_string()));
-                return;
-            }
+        if let Err(err) = result {
+            self.reset_state();
+            bitstream::program_boot();
+            ui::send(ui::Message::CoreLoadError(err.to_string()));
+            return;
         }
+
+        // Clear loading bar
+        ui::send(ui::Message::EnterGame);
+        self.stage = Stage::Running;
+        // Resume
+        let _ = Device::lock().fpga.write_u32(fpga::REG_CTRL_VIBRATE, 1);
+        let _ = Device::lock().fpga.write_u32(fpga::REG_CTRL_FOCUS, 1);
+        let _ = Device::lock().fpga.write_u32(fpga::REG_TEMP_CORE_RESET, 1);
     }
 
     fn load_bitstream(&mut self) {
