@@ -2,15 +2,20 @@ package net.gamebub.framework.interface
 
 import chisel3._
 
+object SdramV0 {
+  /** The number of SDRAM chips available on this hardware. */
+  var numChips: Int = 0
+}
+
 class SdramV0(
     /** Physical address width */
-    addressWidth: Int = 13,
+    val addressWidth: Int = 13,
     /** Physical data width (word size) */
-    dataWidth: Int = 16,
+    val dataWidth: Int = 16,
     /** Bank address width */
-    bankWidth: Int = 2,
-    /** Number of (parallel) chips */
-    chips: Int = 1,
+    val bankWidth: Int = 2,
+    /** Number of (parallel) chips used */
+    val chips: Int = 1,
 ) extends Bundle {
   /** Clock */
   val clock = Output(Clock())

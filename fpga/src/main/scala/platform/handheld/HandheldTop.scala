@@ -57,6 +57,7 @@ object HandheldTop extends App {
         getClockDisplayHz = ILI9488.getClockDisplayHz,
         overlayWidth = 240,
         overlayHeight = 160,
+        numSdramChips = 1,
       )
       case "3" => Revision(
         displayWidth = 800,
@@ -72,6 +73,7 @@ object HandheldTop extends App {
         getClockDisplayHz = (_) => (26_099_000, 26_100_000),
         overlayWidth = 360,
         overlayHeight = 240,
+        numSdramChips = 1,
       )
       case "4" => Revision(
         displayWidth = 800,
@@ -89,6 +91,7 @@ object HandheldTop extends App {
         getClockDisplayHz = ILI9806E.getClockDisplayHz,
         overlayWidth = 360,
         overlayHeight = 240,
+        numSdramChips = 2,
       )
       case _ => throw new IllegalArgumentException("invalid revision " + name)
     }
@@ -165,6 +168,7 @@ class HandheldTop[T <: Core](coreFactory: () => T, revision: Revision) extends M
   // Core
   //////////////////////////////////
   ClocksV0.getClockDisplayHz = revision.getClockDisplayHz
+  SdramV0.numChips = revision.numSdramChips
   val core = Module(coreFactory())
 
   // Clocks
@@ -363,6 +367,7 @@ class HandheldTop[T <: Core](coreFactory: () => T, revision: Revision) extends M
   // SDRAM
   core.getInterface("sdram") match {
     case Some(sdram: SdramV0) => {
+      assert(sdram.chips <= revision.numSdramChips)
       io.sdram <> sdram
     }
     case Some(x) => throw new CoreException("Unknown 'sdram': " + x.getClass())
@@ -889,4 +894,5 @@ case class Revision(
   getClockDisplayHz: (Double) => (Int, Int),
   overlayWidth: Int,
   overlayHeight: Int,
+  numSdramChips: Int,
 )
