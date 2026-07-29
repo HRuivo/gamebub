@@ -29,11 +29,14 @@ pub const REG_CTRL_DOCK: u32 = 0xF100_100C;
 pub const REG_CTRL_FOCUS: u32 = 0xF100_1010;
 pub const REG_CTRL_VIBRATE: u32 = 0xF100_1014;
 
+pub const REG_CTRL_CMD_HOST: u32 = 0xF100_1100;
+pub const REG_CTRL_CMD_CORE: u32 = 0xF100_1104;
+
 pub const REG_STATUS_BUTTON: u32 = 0xF100_2000;
 pub const REG_STATUS_CART_SWITCH: u32 = 0xF100_2004;
 
-pub const REG_TEMP_CORE_RESET: u32 = 0xF100_F000;
-pub const REG_TEMP_COLOR_CORRECT_ENABLE: u32 = 0xF100_F004;
+pub const REG_CMD_HOST_BASE: u32 = 0xF000_0000;
+pub const REG_CMD_CORE_BASE: u32 = 0xF000_1000;
 
 /// The FPGA (due to the spi implementation) can read at a speed that's some
 /// fraction of the SPI domain clock speed. At 200 MHz SPI receiver clock,

@@ -185,13 +185,8 @@ impl Gba {
 
     /// Prepare to load a new cartridge (physical or emulated)
     fn initialize(&mut self, device: &mut Device) -> Result<(), GbaError> {
-        // Hold in reset
-        device.fpga.write_u32(fpga::REG_TEMP_CORE_RESET, 0)?;
         device.imu.disable_gyro().unwrap();
         device.imu.disable_accel().unwrap();
-
-        // Load bios if needed
-        // self.load_bios(device)?;
 
         // Other config
         device.fpga.write_u32(
@@ -216,13 +211,6 @@ impl Gba {
 }
 
 impl Bitstream for Gba {
-    fn reset(&mut self) -> Result<(), fpga::Error> {
-        let mut device = Device::lock();
-        device.fpga.write_u32(fpga::REG_TEMP_CORE_RESET, 0)?;
-        device.fpga.write_u32(fpga::REG_TEMP_CORE_RESET, 1)?;
-        Ok(())
-    }
-
     fn on_vblank_irq(&mut self) {
         let mut device = Device::lock();
 

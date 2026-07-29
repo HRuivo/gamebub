@@ -79,9 +79,6 @@ impl Gameboy {
 
     /// Prepare to load a new cartridge (physical or emulated)
     fn initialize(&mut self, device: &mut Device) -> Result<(), GameboyError> {
-        // Hold in reset
-        device.fpga.write_u32(fpga::REG_TEMP_CORE_RESET, 0)?;
-
         // Set configuration
         let is_dmg = kvs::keys::GB_IS_DMG.get().unwrap();
         let config = 0 | (((!is_dmg) as u32) << 0);
@@ -119,13 +116,6 @@ impl Gameboy {
 }
 
 impl Bitstream for Gameboy {
-    fn reset(&mut self) -> Result<(), fpga::Error> {
-        let mut device = Device::lock();
-        device.fpga.write_u32(fpga::REG_TEMP_CORE_RESET, 0)?;
-        device.fpga.write_u32(fpga::REG_TEMP_CORE_RESET, 1)?;
-        Ok(())
-    }
-
     fn on_vblank_irq(&mut self) {
         let mut device = Device::lock();
         let sample = device.imu.read_accel().unwrap();
@@ -210,7 +200,7 @@ impl CoreHandler for Gameboy {
         self.initialize(&mut device).map_err(|e| e.to_string())?;
 
         // Take out of reset before setting registers.
-        let _ = device.fpga.write_u32(fpga::REG_TEMP_CORE_RESET, 1);
+        // TODO: ???
 
         if let Some(rom_header) = self.rom_header.as_ref() {
             // Configure RTC if needed

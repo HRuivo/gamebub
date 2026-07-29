@@ -14,6 +14,7 @@ import lib.mem.PipelineMemoryBurstCdc
 import xilinx.MMCM
 import net.gamebub.framework.Core
 import lib.video.ColorCorrection
+import platform.handheld.HandheldGba.CommandState
 
 
 object HandheldGba {
@@ -66,6 +67,10 @@ object HandheldGba {
         regLastAddress := io.out.address
       }
     }
+  }
+
+  object CommandState extends ChiselEnum {
+    val idle, busy, error, done = Value
   }
 
   val mmcmVcoHz = 50_000_000.toDouble / 3 * 56.375
@@ -127,6 +132,9 @@ class HandheldGba extends Module with Core {
   io.clocks.clockOutSpi := mmcm.io.clockOuts(3)
   io.clocks.locked := mmcm.io.locked
 
+  val regCoreReset = RegInit(true.B)
+  val regCoreFocus = RegInit(false.B)
+
   val configRegEmuCart = RegInit(0.U.asTypeOf(new EmulatedCartridge.Config))
   val configRegRomSize = RegInit(0.U(25.W))
   val configRegGBPlayer = RegInit(0.U(1.W))
@@ -179,6 +187,7 @@ class HandheldGba extends Module with Core {
   val registerInterface = Wire(new MemoryInterface(addressWidth = 16, dataWidth = 32))
   val biosInterface = Wire(new MemoryInterface(addressWidth = 14, dataWidth = 32)) // 16 KiB
   val colorCorrectInterface = Wire(new MemoryInterface(addressWidth = 9, dataWidth = 16))
+  val commandInterface = Wire(new MemoryInterface(addressWidth = 16, dataWidth = 32))
   io.host.mem <> MemoryMap(
     addressWidth = 32,
     dataWidth = 32,
@@ -188,6 +197,7 @@ class HandheldGba extends Module with Core {
       0x3.U(4.W) -> sdramHost,
       0x4.U(4.W) -> sramHost,
       0x5.U(4.W) -> colorCorrectInterface,
+      0xF0.U(8.W) -> commandInterface,
     ))
 
   suppressEnumCastWarning {
@@ -211,6 +221,46 @@ class HandheldGba extends Module with Core {
     )
   }
 
+  // Command interface
+  val commandHostState = RegInit(CommandState.idle)
+  val regCommandHost0 = Reg(UInt(32.W))
+  commandInterface <> RegisterMap(
+    addressWidth = 16,
+    dataWidth = 32,
+    entries = Seq(
+      0x0000 -> RegisterMap.Entry.rw(regCommandHost0),
+    )
+  )
+  // Host -> Core Commands
+  io.host.commandHost.busy := commandHostState === CommandState.busy
+  io.host.commandHost.done := commandHostState === CommandState.done
+  io.host.commandHost.error := commandHostState === CommandState.error
+  when (io.host.commandHost.request) {
+    when (commandHostState === CommandState.idle) {
+      val opcode = regCommandHost0(31, 16)
+      val arg = regCommandHost0(15, 0)
+      regCommandHost0 := 0.U
+      commandHostState := CommandState.done
+      
+      when (opcode === HostV0.CommandGetStatus.U) {
+        regCommandHost0 := 2.U
+      } .elsewhen (opcode === HostV0.CommandCoreRun.U) {
+        regCoreReset := false.B
+      } .elsewhen (opcode === HostV0.CommandCoreHalt.U) {
+        regCoreReset := true.B
+      } .elsewhen (opcode === HostV0.CommandNotifyFocus.U) {
+        regCoreFocus := arg(0)
+      } .otherwise {
+        // Unknown command
+        commandHostState := CommandState.error
+      }
+    }
+  } .otherwise {
+    commandHostState := CommandState.idle
+  }
+  // Core -> Host commands
+  io.host.commandCore.request := false.B
+
   io.input.vibrate := InputV0.Vibrate.Off
 
   // SDRAM interface and port
@@ -225,12 +275,12 @@ class HandheldGba extends Module with Core {
 
   // Gameboy
   val gba = Module(new GBA)
-  when (io.host.reset) {
+  when (regCoreReset) {
     gba.reset := true.B
   }
   val doStall = WireDefault(false.B)
   gba.io.enable := false.B
-  when (io.host.enable) {
+  when (regCoreFocus) {
     when (doStall) {
       statRegStalls := statRegStalls + 1.U
     }.otherwise {
@@ -246,7 +296,7 @@ class HandheldGba extends Module with Core {
 
   // Emulated cartridge
   val emuCart = Module(new EmulatedCartridge)
-  when (io.host.reset) {
+  when (regCoreReset) {
     emuCart.reset := true.B
   }
   emuCart.io.interfaceEnable := gba.io.enable

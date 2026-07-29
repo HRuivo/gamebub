@@ -101,6 +101,7 @@ object HandheldTop extends App {
 }
 
 class HandheldInterrupts extends Bundle {
+  val coreRequest = Bool()
   val spiResponseFifoUnderflow = Bool()
   val spiRequestFifoOverflow = Bool()
   val buttonEdge = Bool()
@@ -269,16 +270,14 @@ class HandheldTop[T <: Core](coreFactory: () => T, revision: Revision) extends M
   }
 
   // Host
-  val coreHost = Wire(new Bundle {
-    val enable = Bool()
-    val reset = Bool()
-  })
   val coreHostInterface = Wire(new MemoryInterface(addressWidth = 32, dataWidth = 32))
+  val coreCommandHost = Wire(new HostV0.CommandChannel)
+  val coreCommandCore = Wire(new HostV0.CommandChannel)
   core.getInterface("host") match {
     case Some(host: HostV0) => {
-      host.enable := coreHost.enable
-      host.reset := coreHost.reset
       host.mem <> coreHostInterface
+      host.commandHost <> coreCommandHost
+      host.commandCore <> coreCommandCore
     }
     case Some(x) => throw new CoreException("Unknown 'host': " + x.getClass())
     case None => throw new CoreException("'host' is required")
@@ -420,7 +419,9 @@ class HandheldTop[T <: Core](coreFactory: () => T, revision: Revision) extends M
     /** True if the device is docked */
     val docked = Bool()
   }))
-  val controlCoreRun = RegInit(false.B)
+
+  val controlCommandHost = RegInit(0.U.asTypeOf(Output(new HostV0.CommandChannel)))
+  val controlCommandCore = RegInit(0.U.asTypeOf(Output(new HostV0.CommandChannel)))
 
   /// Synchronized physical button state (without MCU force override)
   val buttonState = Wire(new InputV0.Buttons)
@@ -456,12 +457,12 @@ class HandheldTop[T <: Core](coreFactory: () => T, revision: Revision) extends M
       0x1010 -> RegisterMap.Entry.w(controlCoreFocus),
       0x1014 -> RegisterMap.Entry.w(controlVibrate),
 
+      0x1100 -> RegisterMap.Entry.rw(controlCommandHost),
+      0x1104 -> RegisterMap.Entry.rw(controlCommandCore),
+
       // Framework status
       0x2000 -> RegisterMap.Entry.r(buttonState),
       0x2004 -> RegisterMap.Entry.r(RegNext(RegNext(io.cartridge.switch))),
-
-      // Temporary
-      0xF000 -> RegisterMap.Entry.w(controlCoreRun),
     )
   )
 
@@ -497,6 +498,9 @@ class HandheldTop[T <: Core](coreFactory: () => T, revision: Revision) extends M
   when (coreVideo.vblank && !RegNext(coreVideo.vblank)) {
     controlInterruptPending.coreVblank := true.B
   }
+  when (coreCommandCore.request && !RegNext(coreCommandCore.request)) {
+    controlInterruptPending.coreRequest := true.B
+  }
 
   //////////////////////////////////
   // Input & Vibrate
@@ -517,7 +521,7 @@ class HandheldTop[T <: Core](coreFactory: () => T, revision: Revision) extends M
   buttonFilter.io.input := (buttonState.asUInt | controlButtonForce.asUInt).asTypeOf(new InputV0.Buttons)
   coreInput := buttonFilter.io.output
 
-  val vibrateEnabled = coreHost.enable && controlVibrate.enable && !controlDock.docked
+  val vibrateEnabled = controlCoreFocus && controlVibrate.enable && !controlDock.docked
   io.vibrate := RegNext(coreVibrate === InputV0.Vibrate.On && vibrateEnabled)
 
   //////////////////////////////////
@@ -882,8 +886,15 @@ class HandheldTop[T <: Core](coreFactory: () => T, revision: Revision) extends M
   io.cartridge3V3Enable := RegNext(io.cartridge.enabled && !io.cartridge.switch)
   io.cartridge5V0Enable := RegNext(io.cartridge.enabled && io.cartridge.switch)
 
-  coreHost.enable := controlCoreFocus
-  coreHost.reset := !controlCoreRun
+  // Command interface
+  coreCommandHost.request := controlCommandHost.request
+  controlCommandHost.busy := coreCommandHost.busy
+  controlCommandHost.done := coreCommandHost.done
+  controlCommandHost.error := coreCommandHost.error
+  controlCommandCore.request := coreCommandCore.request
+  coreCommandCore.busy := controlCommandCore.busy
+  coreCommandCore.done := controlCommandCore.done
+  coreCommandCore.error := controlCommandCore.error
 }
 
 case class Revision(

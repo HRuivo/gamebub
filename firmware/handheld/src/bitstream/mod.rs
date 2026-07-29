@@ -20,9 +20,6 @@ pub static SCRATCH: ScratchBuffer<{ 16 * 1024 }> = ScratchBuffer::new();
 
 /// Driver for a specific bitstream.
 pub trait Bitstream {
-    /// Reset the inner design, leaving it paused.
-    fn reset(&mut self) -> Result<(), fpga::Error>;
-
     /// Called when a vblank IRQ occurs.
     fn on_vblank_irq(&mut self);
 }

@@ -23,6 +23,11 @@ use crate::{
 mod info;
 
 const PROGRESS_UPDATE_INTERVAL: Duration = Duration::from_millis(250);
+#[allow(unused)]
+const COMMAND_GET_STATUS: u32 = 0x0000_0000;
+const COMMAND_CORE_RUN: u32 = 0x0100_0000;
+const COMMAND_CORE_HALT: u32 = 0x0101_0000;
+const COMMAND_NOTIFY_FOCUS: u32 = 0x0200_0000;
 
 static CORE_MANAGER: LazyLock<Mutex<CoreManager>> =
     LazyLock::new(|| Mutex::new(CoreManager::new()));
@@ -186,6 +191,12 @@ impl CoreManager {
         self.get_core_handler().map(|c| c.as_legacy_bitstream())
     }
 
+    /// Legacy method, should be core-specific (setting?)
+    pub fn reset_core(&mut self) {
+        let _ = self.run_core_command(COMMAND_CORE_HALT, Duration::from_millis(5));
+        let _ = self.run_core_command(COMMAND_CORE_RUN, Duration::from_millis(5));
+    }
+
     pub fn prepare_for_power_off(&mut self) {
         if self.stage == Stage::Running {
             if let Err(e) = self.persist_files() {
@@ -197,6 +208,8 @@ impl CoreManager {
 
     pub fn exit_core(&mut self) {
         if self.stage == Stage::Running {
+            let _ = self.run_core_command(COMMAND_CORE_HALT, Duration::from_millis(50));
+
             if let Err(e) = self.persist_files() {
                 log::error!("Error saving: {}", e);
             }
@@ -223,6 +236,40 @@ impl CoreManager {
         Device::lock().set_cart_power(false);
     }
 
+    fn run_core_command(&mut self, command: u32, timeout: Duration) -> Result<(), ()> {
+        // Write command and arguments
+        {
+            let mut device = Device::lock();
+            let _ = device.fpga.write_u32(fpga::REG_CMD_HOST_BASE, command);
+            let _ = device.fpga.write_u32(fpga::REG_CTRL_CMD_HOST, 0b1000);
+        }
+
+        // Poll for command completion.
+        let start = Instant::now();
+        let status = loop {
+            if start.elapsed() > timeout {
+                log::error!("Command {command:08X} timed out");
+                return Err(());
+            }
+            let mut device = Device::lock();
+            let status = device.fpga.read_u32(fpga::REG_CTRL_CMD_HOST).unwrap();
+            if (status & 0b0011) != 0 {
+                break status;
+            }
+            drop(device);
+            std::thread::sleep(Duration::from_millis(5));
+        };
+
+        // End command.
+        let _ = Device::lock().fpga.write_u32(fpga::REG_CTRL_CMD_HOST, 0);
+
+        if (status & 0b0001) == 0 {
+            Ok(())
+        } else {
+            Err(())
+        }
+    }
+
     pub fn focus_changed(&mut self, has_focus: bool) {
         {
             let mut device = Device::lock();
@@ -231,6 +278,12 @@ impl CoreManager {
                 .fpga
                 .write_u32(fpga::REG_CTRL_FOCUS, has_focus as u32);
         }
+
+        let _ = self.run_core_command(
+            COMMAND_NOTIFY_FOCUS | (has_focus as u32),
+            Duration::from_millis(5),
+        );
+
         self.get_core_handler().unwrap().on_focus_changed(has_focus);
     }
 
@@ -300,7 +353,7 @@ impl CoreManager {
         self.stage = Stage::Running;
         // Resume
         let _ = Device::lock().fpga.write_u32(fpga::REG_CTRL_VIBRATE, 1);
-        let _ = Device::lock().fpga.write_u32(fpga::REG_TEMP_CORE_RESET, 1);
+        let _ = self.run_core_command(COMMAND_CORE_RUN, Duration::from_millis(5));
         self.focus_changed(true);
     }
 

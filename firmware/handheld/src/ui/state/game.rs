@@ -18,11 +18,7 @@ impl UiState {
         });
 
         backend.on_game_reset(move || {
-            CoreManager::lock()
-                .current_bitstream()
-                .unwrap()
-                .reset()
-                .unwrap();
+            CoreManager::lock().reset_core();
         });
 
         let state_ = state.clone();

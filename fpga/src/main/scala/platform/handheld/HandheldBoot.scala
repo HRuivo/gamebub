@@ -56,6 +56,13 @@ class HandheldBoot extends Module with Core {
     io.clocks.clockOutSpi := mmcm.io.clockOuts(2)
     io.clocks.locked := mmcm.io.locked
 
+    // Host command interface
+    // Not a real core, these aren't handled at all.
+    io.host.commandHost.busy := false.B
+    io.host.commandHost.done := io.host.commandHost.request
+    io.host.commandHost.error := true.B
+    io.host.commandCore.request := false.B
+
     // Logo animation
     val logo = Module(new Logo(io.video))
     io.video := logo.io.video_
