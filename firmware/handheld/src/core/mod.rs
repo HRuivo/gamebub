@@ -196,11 +196,16 @@ impl CoreManager {
     }
 
     pub fn exit_core(&mut self) {
-        if let Err(e) = self.persist_files() {
-            log::error!("Error saving: {}", e);
+        if self.stage == Stage::Running {
+            if let Err(e) = self.persist_files() {
+                log::error!("Error saving: {}", e);
+            }
         }
 
         self.reset_state();
+
+        // Power off the DAC
+        Device::lock().dac.set_power_down(true).expect("DAC power");
 
         // And go back to the boot bitstream
         bitstream::program_boot();
@@ -216,9 +221,13 @@ impl CoreManager {
     }
 
     pub fn focus_changed(&mut self, has_focus: bool) {
-        let _ = Device::lock()
-            .fpga
-            .write_u32(fpga::REG_CTRL_FOCUS, has_focus as u32);
+        {
+            let mut device = Device::lock();
+            device.dac.set_power_down(!has_focus).expect("DAC power");
+            let _ = device
+                .fpga
+                .write_u32(fpga::REG_CTRL_FOCUS, has_focus as u32);
+        }
         self.get_core_handler().unwrap().on_focus_changed(has_focus);
     }
 
@@ -269,8 +278,7 @@ impl CoreManager {
         }
 
         if let Err(e) = self.load_files() {
-            self.reset_state();
-            bitstream::program_boot();
+            self.exit_core();
             ui::send(ui::Message::CoreLoadError(e.to_string()));
             return;
         }
@@ -279,8 +287,7 @@ impl CoreManager {
 
         let result = self.get_core_handler().unwrap().on_before_run();
         if let Err(err) = result {
-            self.reset_state();
-            bitstream::program_boot();
+            self.exit_core();
             ui::send(ui::Message::CoreLoadError(err.to_string()));
             return;
         }
@@ -290,8 +297,8 @@ impl CoreManager {
         self.stage = Stage::Running;
         // Resume
         let _ = Device::lock().fpga.write_u32(fpga::REG_CTRL_VIBRATE, 1);
-        let _ = Device::lock().fpga.write_u32(fpga::REG_CTRL_FOCUS, 1);
         let _ = Device::lock().fpga.write_u32(fpga::REG_TEMP_CORE_RESET, 1);
+        self.focus_changed(true);
     }
 
     fn load_bitstream(&mut self) {

@@ -509,6 +509,7 @@ impl Device<'_> {
         let mut dac = drivers::dac::TLV320DAC3101::new(dac_reset, MutexI2C::new(&i2c));
         dac.init().context("DAC init")?;
         dac.configure_interrupts().context("DAC interrupts")?;
+        dac.set_power_down(true).context("DAC power down")?;
         dac.set_volume(kvs::keys::VOLUME.get().unwrap())
             .context("DAC set volume")?;
         dac.set_mute(false).context("DAC set mute")?;

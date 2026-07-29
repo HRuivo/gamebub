@@ -53,7 +53,7 @@ where
             page: 0,
 
             volume: 0,
-            mute: false,
+            mute: true,
         }
     }
 
@@ -236,6 +236,10 @@ where
 
     pub fn set_speakers_enabled(&mut self, enabled: bool) -> Result<(), Error> {
         self.write_reg(1, 0x20, if enabled { 0xC6 } else { 0x06 })
+    }
+
+    pub fn set_power_down(&mut self, power_down: bool) -> Result<(), Error> {
+        self.write_reg(1, 0x2E, if power_down { 0x80 } else { 0x00 })
     }
 
     /// Enable or disable headphone detection.
