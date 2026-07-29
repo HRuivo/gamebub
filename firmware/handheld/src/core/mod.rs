@@ -205,7 +205,10 @@ impl CoreManager {
         self.reset_state();
 
         // Power off the DAC
-        Device::lock().dac.set_power_down(true).expect("DAC power");
+        Device::lock()
+            .dac
+            .set_power_down(0, true)
+            .expect("DAC power");
 
         // And go back to the boot bitstream
         bitstream::program_boot();
@@ -223,7 +226,7 @@ impl CoreManager {
     pub fn focus_changed(&mut self, has_focus: bool) {
         {
             let mut device = Device::lock();
-            device.dac.set_power_down(!has_focus).expect("DAC power");
+            device.dac.set_power_down(0, !has_focus).expect("DAC power");
             let _ = device
                 .fpga
                 .write_u32(fpga::REG_CTRL_FOCUS, has_focus as u32);

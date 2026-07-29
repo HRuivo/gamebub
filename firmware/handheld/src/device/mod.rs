@@ -509,7 +509,7 @@ impl Device<'_> {
         let mut dac = drivers::dac::TLV320DAC3101::new(dac_reset, MutexI2C::new(&i2c));
         dac.init().context("DAC init")?;
         dac.configure_interrupts().context("DAC interrupts")?;
-        dac.set_power_down(true).context("DAC power down")?;
+        dac.set_power_down(0, true).context("DAC power down")?;
         dac.set_volume(kvs::keys::VOLUME.get().unwrap())
             .context("DAC set volume")?;
         dac.set_mute(false).context("DAC set mute")?;
@@ -763,6 +763,7 @@ impl Device<'_> {
         log::info!("Display mode: {:?}", new_mode);
 
         if old_mode == DisplayMode::Internal {
+            self.dac.set_power_down(1, true)?;
             self.lcd_backlight.set_enabled(false);
             self.lcd.enter_sleep()?;
         }
@@ -777,6 +778,7 @@ impl Device<'_> {
             // Let LCD stabilize and refresh before turning on backlight. Measured empirically.
             std::thread::sleep(Duration::from_millis(200));
             self.lcd_backlight.set_enabled(true);
+            self.dac.set_power_down(1, false)?;
         }
 
         self.display_mode = new_mode;

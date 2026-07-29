@@ -39,6 +39,12 @@ pub struct TLV320DAC3101<PinReset: OutputPin, I2C: I2c> {
 
     volume: u8,
     mute: bool,
+
+    /// Multiple power down flags, all OR'd together.
+    ///
+    /// * 0: core focus
+    /// * 1: dock state
+    power_down: [bool; 2],
 }
 
 impl<PinReset, I2C> TLV320DAC3101<PinReset, I2C>
@@ -54,6 +60,7 @@ where
 
             volume: 0,
             mute: true,
+            power_down: [false; 2],
         }
     }
 
@@ -238,7 +245,9 @@ where
         self.write_reg(1, 0x20, if enabled { 0xC6 } else { 0x06 })
     }
 
-    pub fn set_power_down(&mut self, power_down: bool) -> Result<(), Error> {
+    pub fn set_power_down(&mut self, index: usize, power_down: bool) -> Result<(), Error> {
+        self.power_down[index] = power_down;
+        let power_down = self.power_down.iter().any(|&x| x);
         self.write_reg(1, 0x2E, if power_down { 0x80 } else { 0x00 })
     }
 
