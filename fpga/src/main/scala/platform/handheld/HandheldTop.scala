@@ -11,6 +11,8 @@ import lib.util.FractionalDivider
 import platform.handheld.display.DisplayDriverIO
 import platform.handheld.display.ILI9806E
 import platform.handheld.display.ILI9488
+import platform.handheld.display.ST7262E43
+import platform.handheld.display.DpiSignals
 
 object HandheldTop extends App {
   // Parse arguments.
@@ -57,20 +59,11 @@ object HandheldTop extends App {
         displayWidth = 800,
         displayHeight = 480,
         displayColorDepth = 6,
-        displayDriverFactory = (sourceFramePeriod, _) => {
-          val config = AdaptiveDpiDriver.Config(
-            clockHz = 26_100_000,
-            hActive = 800,
-            vActive = 480,
-            variableVsync = false,
-            hSyncMin = 2,
-            hBackPorchMin = 4,
-            hFrontPorchMin = 4,
-            vSyncMin = 2,
-            vBackPorchMin = 4,
-            vFrontPorchMin = 4,
-          )
-          val driver = Module(new AdaptiveDpiDriver(config, sourceFramePeriod))
+        displayDriverFactory = (sourceFramePeriod, clockHz) => {
+          val driver = Module(new ST7262E43(
+            clockHz,
+            sourceFramePeriod,
+          ))
           (driver, driver.io)
         },
         getClockDisplayHz = (_) => (26_099_000, 26_100_000),

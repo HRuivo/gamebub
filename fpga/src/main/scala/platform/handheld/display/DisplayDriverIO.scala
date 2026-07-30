@@ -2,7 +2,6 @@ package platform.handheld.display
 
 import chisel3._
 import chisel3.util._
-import platform.handheld.DpiSignals
 
 class DisplayDriverIO(hActive: Int, vActive: Int) extends Bundle {
     val signals = Output(new DpiSignals)
