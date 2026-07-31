@@ -3,8 +3,7 @@ package platform.handheld
 import chisel3._
 import chisel3.util._
 import _root_.circt.stage.ChiselStage
-import lib.mem.sdram.{BurstSdramController, Signals => SdramSignals}
-import lib.mem.{HandshakeMemoryCdc, MemoryArbiter, MemoryInterface, MemoryMap, PipelineInterfaceBridge, PipelineMemoryArbiter, PipelineMemoryBurstCdc, PipelineMemoryInterface, RegisterMap}
+import lib.mem.{HandshakeMemoryCdc, MemoryInterface, MemoryMap, RegisterMap}
 import lib.video.{Color, ColorARGB, ColorCorrection, ColorGrayscale}
 import xilinx.{XpmCdcHandshake, XpmCdcSingle, XpmCdcSyncRst}
 import xilinx.MMCM
@@ -146,13 +145,6 @@ object HandheldVibrate extends ChiselEnum {
  */
 class HandheldTop[T <: Module with HandheldModule](genT: => T, revision: Revision) extends Module {
   val module = Module(genT)
-  val sdramConfig = BurstSdramController.Config(
-    clockFrequency = module.io.clocks.clockSdramHz,
-    accessLength = 2,
-    timeRsc = (2 * 1_000_000_000) / module.io.clocks.clockSdramHz, /* 2 clocks */
-    timeWr = (2 * 1_000_000_000) / module.io.clocks.clockSdramHz, /* 2 clocks */
-    enableBurst = module.io.sdram.sdramBurst,
-  )
   val io = IO(new Bundle {
     /** Clocking **/
     val clockIn50Mhz = Input(Clock())
@@ -200,11 +192,11 @@ class HandheldTop[T <: Module with HandheldModule](genT: => T, revision: Revisio
     val link = new LinkPortV0
 
     // SRAM
-    val sram = new AsyncSramController.Signals(addressWidth = 18, dataWidth = 16)
+    val sram = new SramV0(addressWidth = 18, dataWidth = 16)
 
     // SDRAM
     val sdramClock = Output(Clock())
-    val sdram = new SdramSignals(addressWidth = 13, dataWidth = 16, bankWidth = 2)
+    val sdram = new SdramV0(addressWidth = 13, dataWidth = 16, bankWidth = 2, chips = 1)
   })
 
   //////////////////////////////////
@@ -319,9 +311,7 @@ class HandheldTop[T <: Module with HandheldModule](genT: => T, revision: Revisio
     )
   )
 
-  val sramSpiInterface = Wire(new MemoryInterface(addressWidth = 19, dataWidth = 16))
-  val sdramSpiInterface = Wire(new MemoryInterface(addressWidth = 25, dataWidth = 32))
-  val moduleMcuInterface = Wire(new MemoryInterface(addressWidth = 30, dataWidth = 32))
+  val moduleMcuInterface = Wire(new MemoryInterface(addressWidth = 31, dataWidth = 32))
   val overlayInterface = Wire(new MemoryInterface(addressWidth = 18, dataWidth = 16))
   val framebufferInterface = Wire(new MemoryInterface(addressWidth = 18, dataWidth = 16))
   val colorCorrectInterface = Wire(new MemoryInterface(addressWidth = 9, dataWidth = 16))
@@ -333,13 +323,13 @@ class HandheldTop[T <: Module with HandheldModule](genT: => T, revision: Revisio
     addressWidth = 32,
     dataWidth = 32,
     entries = Seq(
-      0x01.U(8.W) -> registerMap,
-      0x02.U(8.W) -> colorCorrectInterface,
-      0x03.U(8.W) -> overlayInterface,
-      0x04.U(8.W) -> framebufferInterface,
-      0x05.U(8.W) -> sramSpiInterface,
-      0x8.U(4.W) -> sdramSpiInterface,
-      0xE.U(4.W) -> moduleMcuInterface,
+      // 2 GiB region 0x0000_0000 - 0x7FFF_FFFF
+      0x00.U(1.W) -> moduleMcuInterface,
+
+      0x80.U(8.W) -> registerMap,
+      0x81.U(8.W) -> overlayInterface,
+      0x82.U(8.W) -> framebufferInterface,
+      0xC00.U(12.W) -> colorCorrectInterface,
     ))
 
   controlRegister.moduleVblank := module.io.video.vblank
@@ -371,42 +361,6 @@ class HandheldTop[T <: Module with HandheldModule](genT: => T, revision: Revisio
       // Button edge, mark interrupt
       interruptFlags.buttonEdge := true.B
     }
-  }
-
-  //////////////////////////////////
-  // Memory
-  //////////////////////////////////
-  val sram = Module(new AsyncSramController(addressWidth = 18, dataWidth = 16))
-  val sramArbiter = Module(new MemoryArbiter(addressWidth = 18, dataWidth = 16, n = 2))
-  io.sram <> sram.io.signals
-  sram.io.mem <> sramArbiter.io.target
-  sramArbiter.io.initiator(0) <> sramSpiInterface
-  sramArbiter.io.initiator(0).address := sramSpiInterface.address >> 1  // SPI is byte addressed
-
-  // SDRAM
-  val sdramArbiter = Module(new PipelineMemoryArbiter(addressWidth = 25, dataWidth = 32, n = 2))
-
-  {
-    val bridge = Module(new PipelineInterfaceBridge(addressWidth = 25, dataWidth = 32))
-    bridge.io.source <> sdramSpiInterface
-    bridge.io.dest <> sdramArbiter.io.initiator(0)
-  }
-
-  val sdram = withClock(sdramClock) {
-    Module(new BurstSdramController(sdramConfig))
-  }
-  io.sdram <> sdram.io.signals
-
-  withClock (sdramClock) {
-    val cdc = Module(new PipelineMemoryBurstCdc(
-      addressWidth = 25,
-      dataWidth = 32,
-      addressBurstIncrement = 4,
-      enablePrefetch = module.io.sdram.sdramBurst,
-    ))
-    cdc.io.slowClock := clock
-    cdc.io.initiator <> sdramArbiter.io.target
-    cdc.io.target <> sdram.io.mem
   }
 
   //////////////////////////////////
@@ -777,9 +731,9 @@ class HandheldTop[T <: Module with HandheldModule](genT: => T, revision: Revisio
   io.cartridge5V0Enable := RegNext(module.io.cartridge.enabled && io.cartridge.switch)
 
   // Memories
-  sramArbiter.io.initiator(1) <> module.io.sram.mem
-  sdramArbiter.io.initiator(1) <> module.io.sdram.mem
+  io.sram <> module.io.sram
   module.io.clocks.clockSdram := sdramClock
+  io.sdram <> module.io.sdram
 }
 
 case class Revision(

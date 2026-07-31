@@ -11,8 +11,7 @@ class HostV0(
     val enable = Input(Bool())
     val reset = Input(Bool())
 
-    // TODO increase to addressWidth = 31
-    val mem = new MemoryInterface(addressWidth = 30, dataWidth = 32)
+    val mem = new MemoryInterface(addressWidth = 32, dataWidth = 32)
 
     // TODO
 

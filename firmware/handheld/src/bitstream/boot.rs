@@ -4,12 +4,12 @@ use esp_idf_svc::hal::units::Hertz;
 
 use crate::device::{drivers::fpga, Device};
 
-pub const REG_LOGO_BASE: u32 = 0xE000_0000;
+pub const REG_LOGO_BASE: u32 = 0x0000_0000;
 pub const REG_LOGO_ANIM: u32 = REG_LOGO_BASE | 0x0;
 pub const REG_LOGO_Y: u32 = REG_LOGO_BASE | 0x4;
 
-pub const REG_BASE: u32 = 0xE040_0000;
-pub const MEM_BASE: u32 = 0xE050_0000;
+pub const REG_BASE: u32 = 0x0400_0000;
+pub const MEM_BASE: u32 = 0x0500_0000;
 
 /// Load a file to the internal soft CPU memory.
 pub fn load_cpu_memory(

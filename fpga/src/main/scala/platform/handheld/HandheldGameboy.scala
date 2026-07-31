@@ -8,6 +8,10 @@ import lib.mem.{MemoryInterface, MemoryMap, PipelineInterfaceBridge, RegisterMap
 import lib.util.ButtonFilter
 import lib.video.ColorARGB
 import net.gamebub.framework.interface._
+import lib.mem.MemoryArbiter
+import lib.mem.PipelineMemoryArbiter
+import lib.mem.sdram.BurstSdramController
+import lib.mem.PipelineMemoryBurstCdc
 
 object HandheldGameboy {
   class Config extends Bundle {
@@ -34,7 +38,7 @@ class HandheldGameboy extends Module with HandheldModule {
     val cartridge = new CartridgePortV0()
     val link = new LinkPortV0()
     val sram = new SramV0()
-    val sdram = new SdramV0(sdramBurst = false)
+    val sdram = new SdramV0()
   })
 
   // Config
@@ -71,16 +75,33 @@ class HandheldGameboy extends Module with HandheldModule {
     )
   }
 
+  val sramArbiter = Module(new MemoryArbiter(addressWidth = 18, dataWidth = 16, n = 2))
+  val sramHost = sramArbiter.io.initiator(0)
+  val sramEmuCart = sramArbiter.io.initiator(1)
+
+  // SDRAM
+  val sdramArbiter = Module(new PipelineMemoryArbiter(addressWidth = 25, dataWidth = 32, n = 2))
+  val sdramHost = Wire(new MemoryInterface(addressWidth = 25, dataWidth = 32))
+  val sdramEmuCart = sdramArbiter.io.initiator(1)
+
+  {
+    val bridge = Module(new PipelineInterfaceBridge(addressWidth = 25, dataWidth = 32))
+    bridge.io.source <> sdramHost
+    bridge.io.dest <> sdramArbiter.io.initiator(0)
+  }
+
   val registerInterface = Wire(new MemoryInterface(addressWidth = 16, dataWidth = 32))
   val biosInterface = Wire(new MemoryInterface(addressWidth = 12, dataWidth = 8)) // 4 KiB
   val dmgPaletteInterface = Wire(new MemoryInterface(addressWidth = 5, dataWidth = 16))
   io.host.mem <> MemoryMap(
-    addressWidth = 24,
+    addressWidth = 32,
     dataWidth = 32,
     entries = Seq(
       0x0.U(4.W) -> registerInterface,
       0x1.U(4.W) -> biosInterface,
       0x2.U(4.W) -> dmgPaletteInterface,
+      0x3.U(4.W) -> sdramHost,
+      0x4.U(4.W) -> sramHost,
     ))
 
   suppressEnumCastWarning {
@@ -249,18 +270,19 @@ class HandheldGameboy extends Module with HandheldModule {
   emuCart.io.imu.y := configRegImuAccelY
 
   val sdramBridge = Module(new PipelineInterfaceBridge(addressWidth = 25, dataWidth = 32))
-  sdramBridge.io.dest <> io.sdram.mem
+  sdramBridge.io.dest <> sdramEmuCart
   val sdram = sdramBridge.io.source
   sdram.enable := false.B
   sdram.write := false.B
   sdram.address := DontCare
   sdram.dataWrite := DontCare
   sdram.writeStrobe := DontCare
-  io.sram.mem.enable := false.B
-  io.sram.mem.write := false.B
-  io.sram.mem.address := DontCare
-  io.sram.mem.dataWrite := DontCare
-  io.sram.mem.writeStrobe := DontCare
+
+  sramEmuCart.enable := false.B
+  sramEmuCart.write := false.B
+  sramEmuCart.address := DontCare
+  sramEmuCart.dataWrite := DontCare
+  sramEmuCart.writeStrobe := DontCare
 
   val regEmuCartBusy = RegInit(false.B)
   val regEmuCartDataRead = Reg(UInt(8.W))
@@ -304,16 +326,16 @@ class HandheldGameboy extends Module with HandheldModule {
         emuCart.io.dataAccess.valid := sdram.done
       }
     } .otherwise {
-      io.sram.mem.enable := true.B
-      io.sram.mem.write := emuCartIsWrite
-      io.sram.mem.address := (configRegRamAddress + (Cat(emuCartAddress(16, 1), "b0".U(1.W)) & configRegRamMask)) >> 1
-      io.sram.mem.dataWrite := Fill(2, emuCartDataWrite)
-      io.sram.mem.writeStrobe := Mux(emuCartAddress(0), "b10".U(2.W), "b01".U(2.W))
-      emuCart.io.dataAccess.valid := io.sram.mem.done
+      sramEmuCart.enable := true.B
+      sramEmuCart.write := emuCartIsWrite
+      sramEmuCart.address := (configRegRamAddress + (Cat(emuCartAddress(16, 1), "b0".U(1.W)) & configRegRamMask))
+      sramEmuCart.dataWrite := Fill(2, emuCartDataWrite)
+      sramEmuCart.writeStrobe := Mux(emuCartAddress(0), "b10".U(2.W), "b01".U(2.W))
+      emuCart.io.dataAccess.valid := sramEmuCart.done
       emuCart.io.dataAccess.dataRead := Mux(
         emuCartAddress(0),
-        io.sram.mem.dataRead(15, 8),
-        io.sram.mem.dataRead(7, 0)
+        sramEmuCart.dataRead(15, 8),
+        sramEmuCart.dataRead(7, 0)
       )
     }
   }
@@ -400,4 +422,52 @@ class HandheldGameboy extends Module with HandheldModule {
     bios.readPorts(0).address := gameboy.io.bootRom.address
   }
   gameboy.io.bootRom.data := bios.readPorts(0).data
+
+  // SRAM controller
+  val sramController = Module(new AsyncSramController(addressWidth = 18, dataWidth = 16))
+  io.sram.ceN := false.B
+  io.sram.weN := sramController.io.signals.weN
+  io.sram.oeN := sramController.io.signals.oeN
+  io.sram.writeMaskN := sramController.io.signals.writeMaskN
+  io.sram.address := sramController.io.signals.address
+  sramController.io.signals.dataIn := io.sram.dataIn
+  io.sram.dataOut := sramController.io.signals.dataOut
+  io.sram.dataDir := sramController.io.signals.dataDir
+  sramController.io.mem <> sramArbiter.io.target
+
+  // SDRAM controller
+  withClock(io.clocks.clockSdram) {
+    val config = BurstSdramController.Config(
+      clockFrequency = io.clocks.clockSdramHz,
+      accessLength = 2,
+      timeRsc = (2 * 1_000_000_000) / io.clocks.clockSdramHz, /* 2 clocks */
+      timeWr = (2 * 1_000_000_000) / io.clocks.clockSdramHz, /* 2 clocks */
+      enableBurst = false,
+    )
+    val controller = Module(new BurstSdramController(config))
+    val cdc = Module(new PipelineMemoryBurstCdc(
+      addressWidth = 25,
+      dataWidth = 32,
+      addressBurstIncrement = 4,
+      enablePrefetch = false,
+    ))
+    cdc.io.slowClock := clock
+    cdc.io.initiator <> sdramArbiter.io.target
+    cdc.io.target <> controller.io.mem
+    
+    io.sdram.clock := io.clocks.clockSdram
+    io.sdram.cke := controller.io.signals.cke
+
+    io.sdram.cs := controller.io.signals.cs
+    io.sdram.ras := controller.io.signals.ras
+    io.sdram.cas := controller.io.signals.cas
+    io.sdram.we := controller.io.signals.we
+
+    io.sdram.dqm := controller.io.signals.dqm
+    io.sdram.bank := controller.io.signals.bank
+    io.sdram.address := controller.io.signals.address
+    controller.io.signals.dataIn := io.sdram.dataIn
+    io.sdram.dataOut := controller.io.signals.dataOut
+    io.sdram.dataDir := controller.io.signals.dataDir
+  }
 }

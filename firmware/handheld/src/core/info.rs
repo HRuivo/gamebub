@@ -63,7 +63,7 @@ static CORES: &[CoreInfo] = &[
                 dependent_on_0: false,
                 initialize: false,
 
-                address: 0x8000_0000, // SDRAM
+                address: 0x3000_0000, // SDRAM
                 max_size: 8 * 1024 * 1024,
                 exact_size: 0,
                 max_transfer_speed: 10_000, // 10 MB/s
@@ -81,7 +81,7 @@ static CORES: &[CoreInfo] = &[
                 dependent_on_0: true,
                 initialize: true,
 
-                address: 0x0500_0000, // SRAM
+                address: 0x4000_0000, // SRAM
                 max_size: 128 * 1024 + 48,
                 exact_size: 0,
                 max_transfer_speed: 5_000, // 5 MB/s
@@ -99,7 +99,7 @@ static CORES: &[CoreInfo] = &[
                 dependent_on_0: false,
                 initialize: false,
 
-                address: 0xE010_0000 + 256,
+                address: 0x1000_0000 + 256,
                 max_size: 0,
                 exact_size: 2048 + 256,
                 max_transfer_speed: 5_000, // 5 MB/s
@@ -117,7 +117,7 @@ static CORES: &[CoreInfo] = &[
                 dependent_on_0: false,
                 initialize: false,
 
-                address: 0xE010_0000,
+                address: 0x1000_0000,
                 max_size: 0,
                 exact_size: 256,
                 max_transfer_speed: 5_000, // 5 MB/s
@@ -142,7 +142,7 @@ static CORES: &[CoreInfo] = &[
                 dependent_on_0: false,
                 initialize: false,
 
-                address: 0x8000_0000, // SDRAM
+                address: 0x3000_0000, // SDRAM
                 max_size: 32 * 1024 * 1024,
                 exact_size: 0,
                 max_transfer_speed: 20_000, // 20 MB/s
@@ -160,7 +160,7 @@ static CORES: &[CoreInfo] = &[
                 dependent_on_0: true,
                 initialize: true,
 
-                address: 0x0500_0000, // SRAM
+                address: 0x4000_0000, // SRAM
                 max_size: 128 * 1024 + 16,
                 exact_size: 0,
                 max_transfer_speed: 10_000, // 10 MB/s
@@ -178,7 +178,7 @@ static CORES: &[CoreInfo] = &[
                 dependent_on_0: false,
                 initialize: false,
 
-                address: 0xE010_0000,
+                address: 0x1000_0000,
                 max_size: 0,
                 exact_size: 16 * 1024,
                 max_transfer_speed: 20_000, // 20 MB/s

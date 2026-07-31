@@ -329,11 +329,12 @@ module top_handheld (
         .io_sram_dataIn(inner_sram_io_in),
         .io_sram_dataOut(inner_sram_io_out),
         .io_sram_dataDir(inner_sram_io_dir),
+        .io_sram_ceN(sram_ce_n),
         .io_sram_weN(sram_we_n),
         .io_sram_oeN(sram_oe_n),
         .io_sram_writeMaskN(inner_sram_write_mask),
 
-        .io_sdramClock(sdram_clk),
+        .io_sdram_clock(sdram_clk),
         .io_sdram_cke(sdram_cke[0]),
         .io_sdram_cs(sdram_cs_n[0]),
         .io_sdram_ras(sdram_ras_n),
@@ -410,7 +411,6 @@ module top_handheld (
 
     assign inner_sram_io_in = sram_io;
     assign sram_io = inner_sram_io_dir ? inner_sram_io_out : 16'hzzzz;
-    assign sram_ce_n = 1'b0;
     assign sram_ub_n = inner_sram_write_mask[1];
     assign sram_lb_n = inner_sram_write_mask[0];
 

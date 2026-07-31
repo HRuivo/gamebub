@@ -27,8 +27,10 @@ class HandheldBoot extends Module with HandheldModule {
         val input = new InputV0()
         val cartridge = new CartridgePortV0()
         val link = new LinkPortV0()
+
+        // TODO: exclude sram and sdram
         val sram = new SramV0()
-        val sdram = new SdramV0(sdramBurst = false)
+        val sdram = new SdramV0()
     })
 
     stubUnused()
@@ -52,12 +54,12 @@ class HandheldBoot extends Module with HandheldModule {
     val registerInterface = Wire(new MemoryInterface(addressWidth = 16, dataWidth = 32))
     val hostMemInterface = Wire(new MemoryInterface(addressWidth = 16, dataWidth = 32))
     io.host.mem <> MemoryMap(
-        addressWidth = 24,
+        addressWidth = 32,
         dataWidth = 32,
         entries = Seq(
-            0x0.U(4.W) -> logo.io.registers,
-            0x4.U(4.W) -> registerInterface,
-            0x5.U(4.W) -> hostMemInterface,
+            0x00.U(8.W) -> logo.io.registers,
+            0x04.U(8.W) -> registerInterface,
+            0x05.U(8.W) -> hostMemInterface,
         ))
 
     // TODO: fix the fundmental issue with the MemoryInterface
@@ -304,17 +306,25 @@ class HandheldBoot extends Module with HandheldModule {
         io.audio.right := 0.S
 
         // SRAM unused
-        io.sram.mem.enable := false.B
-        io.sram.mem.write := false.B
-        io.sram.mem.address := DontCare
-        io.sram.mem.dataWrite := DontCare
-        io.sram.mem.writeStrobe := DontCare
+        io.sram.ceN := true.B
+        io.sram.weN := true.B
+        io.sram.oeN := true.B
+        io.sram.writeMaskN := true.B
+        io.sram.address := DontCare
+        io.sram.dataOut := DontCare
+        io.sram.dataDir := false.B
 
         // SDRAM unused
-        io.sdram.mem.enable := false.B
-        io.sdram.mem.isWrite := false.B
-        io.sdram.mem.address := DontCare
-        io.sdram.mem.dataWrite := DontCare
-        io.sdram.mem.writeStrobe := DontCare
+        io.sdram.clock := false.B.asClock
+        io.sdram.cke := false.B
+        io.sdram.cs := true.B
+        io.sdram.ras := true.B
+        io.sdram.cas := true.B
+        io.sdram.we := true.B
+        io.sdram.dqm := DontCare
+        io.sdram.bank := DontCare
+        io.sdram.address := DontCare
+        io.sdram.dataOut := DontCare
+        io.sdram.dataDir := false.B
     }
 }

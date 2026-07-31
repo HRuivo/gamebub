@@ -9,6 +9,9 @@ import lib.mem.{MemoryArbiter, MemoryInterface, MemoryMap, PipelineInterfaceBrid
 import lib.util.ButtonFilter
 import lib.video.ColorARGB
 import net.gamebub.framework.interface._
+import lib.mem.PipelineMemoryArbiter
+import lib.mem.sdram.BurstSdramController
+import lib.mem.PipelineMemoryBurstCdc
 
 
 object HandheldGba {
@@ -84,7 +87,7 @@ class HandheldGba extends Module with HandheldModule {
     val cartridge = new CartridgePortV0()
     val link = new LinkPortV0()
     val sram = new SramV0()
-    val sdram = new SdramV0(sdramBurst = true)
+    val sdram = new SdramV0()
   })
 
   val configRegEmuCart = RegInit(0.U.asTypeOf(new EmulatedCartridge.Config))
@@ -119,14 +122,33 @@ class HandheldGba extends Module with HandheldModule {
     )
   }
 
+  // SRAM arbiter (shared between host, EWRAM and emucart)
+  val sramArbiter = Module(new MemoryArbiter(addressWidth = 19, dataWidth = 16, n = 3))
+  val sramHost = sramArbiter.io.initiator(0)
+  val sramEwram = sramArbiter.io.initiator(1)
+  val sramEmuCart = sramArbiter.io.initiator(2)
+
+  // SDRAM
+  val sdramArbiter = Module(new PipelineMemoryArbiter(addressWidth = 25, dataWidth = 32, n = 2))
+  val sdramHost = Wire(new MemoryInterface(addressWidth = 25, dataWidth = 32))
+  val sdramEmuCart = sdramArbiter.io.initiator(1)
+
+  {
+    val bridge = Module(new PipelineInterfaceBridge(addressWidth = 25, dataWidth = 32))
+    bridge.io.source <> sdramHost
+    bridge.io.dest <> sdramArbiter.io.initiator(0)
+  }
+
   val registerInterface = Wire(new MemoryInterface(addressWidth = 16, dataWidth = 32))
   val biosInterface = Wire(new MemoryInterface(addressWidth = 14, dataWidth = 32)) // 16 KiB
   io.host.mem <> MemoryMap(
-    addressWidth = 24,
+    addressWidth = 32,
     dataWidth = 32,
     entries = Seq(
       0x0.U(4.W) -> registerInterface,
       0x1.U(4.W) -> biosInterface,
+      0x3.U(4.W) -> sdramHost,
+      0x4.U(4.W) -> sramHost,
     ))
 
   suppressEnumCastWarning {
@@ -154,19 +176,13 @@ class HandheldGba extends Module with HandheldModule {
 
   // SDRAM interface and port
   private val cache = Module(new HandheldGba.MiniCache(addressWidth = 25, dataWidth = 32))
-  io.sdram.mem <> cache.io.out
+  sdramEmuCart <> cache.io.out
   val sdramPort = cache.io.in
   sdramPort.enable := false.B
   sdramPort.address := DontCare
   sdramPort.isWrite := false.B
   sdramPort.writeStrobe := DontCare
   sdramPort.dataWrite := DontCare
-  
-  // SRAM arbiter (shared between EWRAM and emucart)
-  val sramArbiter = Module(new MemoryArbiter(addressWidth = 18, dataWidth = 16, n = 2))
-  io.sram.mem <> sramArbiter.io.target
-  val sramEwram = sramArbiter.io.initiator(0)
-  val sramEmuCart = sramArbiter.io.initiator(1)
 
   // Gameboy
   val gba = Module(new GBA)
@@ -219,7 +235,7 @@ class HandheldGba extends Module with HandheldModule {
   // Emulated cartridge SRAM: convert 8-bit accesses to 16-bit. Starts at 0 bytes into SRAM (takes 128KiB / 512 KiB).
   val regEmuCartSramByte = RegEnable(emuCart.io.backup.address(0), emuCart.io.backup.enable)
   sramEmuCart.enable := emuCart.io.backup.enable
-  sramEmuCart.address := emuCart.io.backup.address >> 1
+  sramEmuCart.address := emuCart.io.backup.address
   sramEmuCart.write := emuCart.io.backup.write
   sramEmuCart.dataWrite := Fill(2, emuCart.io.backup.dataWrite)
   sramEmuCart.writeStrobe := Mux(emuCart.io.backup.address(0), "b10".U(2.W), "b01".U(2.W))
@@ -335,7 +351,7 @@ class HandheldGba extends Module with HandheldModule {
 
   // EWRAM. Starts at 256KB into the external SRAM.
   sramEwram <> gba.io.ewram
-  sramEwram.address := Cat(1.U(1.W), gba.io.ewram.address)
+  sramEwram.address := Cat(1.U(1.W), gba.io.ewram.address, 0.U(1.W))
 
   io.pmod.out := gba.io.link.in.asUInt
   io.pmod.dir := "b1111".U(4.W)
@@ -353,4 +369,53 @@ class HandheldGba extends Module with HandheldModule {
   gba.io.link.in.sd := RegNext(RegNext(io.link.sdIn))
   gba.io.link.in.si := RegNext(RegNext(io.link.siIn))
   gba.io.link.in.so := RegNext(RegNext(io.link.soIn))
+
+  // SRAM controller
+  val sramController = Module(new AsyncSramController(addressWidth = 18, dataWidth = 16))
+  io.sram.ceN := false.B
+  io.sram.weN := sramController.io.signals.weN
+  io.sram.oeN := sramController.io.signals.oeN
+  io.sram.writeMaskN := sramController.io.signals.writeMaskN
+  io.sram.address := sramController.io.signals.address
+  sramController.io.signals.dataIn := io.sram.dataIn
+  io.sram.dataOut := sramController.io.signals.dataOut
+  io.sram.dataDir := sramController.io.signals.dataDir
+  sramController.io.mem <> sramArbiter.io.target
+  sramController.io.mem.address := sramArbiter.io.target.address >> 1
+
+  // SDRAM controller
+  withClock(io.clocks.clockSdram) {
+    val config = BurstSdramController.Config(
+      clockFrequency = io.clocks.clockSdramHz,
+      accessLength = 2,
+      timeRsc = (2 * 1_000_000_000) / io.clocks.clockSdramHz, /* 2 clocks */
+      timeWr = (2 * 1_000_000_000) / io.clocks.clockSdramHz, /* 2 clocks */
+      enableBurst = true,
+    )
+    val controller = Module(new BurstSdramController(config))
+    val cdc = Module(new PipelineMemoryBurstCdc(
+      addressWidth = 25,
+      dataWidth = 32,
+      addressBurstIncrement = 4,
+      enablePrefetch = true,
+    ))
+    cdc.io.slowClock := clock
+    cdc.io.initiator <> sdramArbiter.io.target
+    cdc.io.target <> controller.io.mem
+    
+    io.sdram.clock := io.clocks.clockSdram
+    io.sdram.cke := controller.io.signals.cke
+
+    io.sdram.cs := controller.io.signals.cs
+    io.sdram.ras := controller.io.signals.ras
+    io.sdram.cas := controller.io.signals.cas
+    io.sdram.we := controller.io.signals.we
+
+    io.sdram.dqm := controller.io.signals.dqm
+    io.sdram.bank := controller.io.signals.bank
+    io.sdram.address := controller.io.signals.address
+    controller.io.signals.dataIn := io.sdram.dataIn
+    io.sdram.dataOut := controller.io.signals.dataOut
+    io.sdram.dataDir := controller.io.signals.dataDir
+  }
 }
