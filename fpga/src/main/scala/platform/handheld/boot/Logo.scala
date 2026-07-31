@@ -3,7 +3,7 @@ package platform.handheld.boot
 import chisel3._
 import chisel3.util._
 import lib.mem.{MemoryInterface, RegisterMap}
-import lib.video.ColorARGB
+import lib.video.ColorRGB
 import net.gamebub.framework.interface.VideoV0
 
 import java.awt.Color
@@ -42,13 +42,11 @@ class Logo(video: VideoV0) extends Module {
   // Load and process logo
   val (logoW, logoH, logoData) = loadLogo()
   val logo = VecInit(logoData.map(x => x.U(2.W)))
-  val bgColor = Wire(ColorARGB.rgb555())
-  bgColor.a := 0.U
+  val bgColor = Wire(ColorRGB(5))
   bgColor.r := (0xE8 >> 3).U(5.W)
   bgColor.g := (0xE8 >> 3).U(5.W)
   bgColor.b := (0xE8 >> 3).U(5.W)
-  val shadowColor = Wire(ColorARGB.rgb555())
-  shadowColor.a := 0.U
+  val shadowColor = Wire(ColorRGB(5))
   shadowColor.r := (0x5B >> 3).U(5.W)
   shadowColor.g := (0x0B >> 3).U(5.W)
   shadowColor.b := (0x6A >> 3).U(5.W)
@@ -57,7 +55,6 @@ class Logo(video: VideoV0) extends Module {
   val colorTable = makeColorTable(logoW)
   val colorOffX = RegInit(0.U(log2Ceil(3 * logoW).W))
 
-  io.video_.data.a := DontCare
   io.video_.dataEnable := false.B
   io.video_.hblank := false.B
   io.video_.vblank := false.B
@@ -136,8 +133,7 @@ class Logo(video: VideoV0) extends Module {
       val hsbVals = Color.RGBtoHSB(0x81, 0x0F, 0x97, null)
       hsbVals(2) += (delta * 0.5).toFloat
       val out = Color.getHSBColor(hsbVals(0), hsbVals(1), hsbVals(2).min(1))
-      val color = Wire(ColorARGB.rgb555())
-      color.a := DontCare
+      val color = Wire(ColorRGB(5, 5, 5))
       color.r := (out.getRed >> 3).U(5.W)
       color.g := (out.getGreen >> 3).U(5.W)
       color.b := (out.getBlue >> 3).U(5.W)

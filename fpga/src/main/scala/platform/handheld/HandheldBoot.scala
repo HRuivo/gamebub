@@ -3,7 +3,6 @@ package platform.handheld
 import chisel3._
 import chisel3.util._
 import lib.mem.MemoryMap
-import lib.video.ColorARGB
 import platform.handheld.boot.{CartridgeUtility, Logo, picorv32}
 import net.gamebub.framework.interface._
 import lib.mem.MemoryInterface

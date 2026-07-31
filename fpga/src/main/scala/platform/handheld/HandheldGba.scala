@@ -7,7 +7,6 @@ import gba.cart.emu.EmulatedCartridge
 import lib.mem.cache.DirectReadCache
 import lib.mem.{MemoryArbiter, MemoryInterface, MemoryMap, PipelineInterfaceBridge, PipelineMemoryInterface, RegisterMap}
 import lib.util.ButtonFilter
-import lib.video.ColorARGB
 import net.gamebub.framework.interface._
 import lib.mem.PipelineMemoryArbiter
 import lib.mem.sdram.BurstSdramController
@@ -344,7 +343,6 @@ class HandheldGba extends Module with Core {
   }
 
   // Video output
-  io.video.data.a := DontCare
   io.video.data.r := gba.io.ppu.pixel(4, 0)
   io.video.data.g := gba.io.ppu.pixel(9, 5)
   io.video.data.b := gba.io.ppu.pixel(14, 10)

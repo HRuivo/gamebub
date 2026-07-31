@@ -30,8 +30,8 @@ class ColorCorrection(
     /// Enable corrections, or false to pass colors through unchanged.
     val enable = Input(Bool())
 
-    val in = Input(ColorARGB(0, inputDepth, inputDepth, inputDepth))
-    val out = Output(ColorARGB(0, outputDepth, outputDepth, outputDepth))
+    val in = Input(ColorRGB(inputDepth, inputDepth, inputDepth))
+    val out = Output(ColorRGB(outputDepth, outputDepth, outputDepth))
 
     val matrixR = Input(Vec(3, SInt((matrixDepth + 2).W)))
     val matrixG = Input(Vec(3, SInt((matrixDepth + 2).W)))
@@ -61,7 +61,6 @@ class ColorCorrection(
   val indexG = clamp(correctG, 0.S, ((1 << internalDepth) - 1).S).asUInt >> (internalDepth - outputTableDepth)
   val indexB = clamp(correctB, 0.S, ((1 << internalDepth) - 1).S).asUInt >> (internalDepth - outputTableDepth)
 
-  io.out.a := DontCare
   io.out.r := RegNext(io.outputTable(indexR.asUInt))
   io.out.g := RegNext(io.outputTable(indexG.asUInt))
   io.out.b := RegNext(io.outputTable(indexB.asUInt))

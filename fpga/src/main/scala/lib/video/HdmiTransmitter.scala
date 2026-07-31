@@ -23,7 +23,7 @@ class HdmiTransmitter(config: HdmiTransmitter.Config) extends Module {
     val clockPixelX5 = Input(Clock())
     val clockAudio = Input(Clock())
 
-    val color = Input(ColorARGB(0, 8, 8, 8))
+    val color = Input(ColorRGB(8, 8, 8))
     val audio = Input(Vec(2, UInt(config.audioBitWidth.W)))
 
     val outClock = Output(Bool())

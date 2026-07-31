@@ -6,7 +6,7 @@ import gameboy.Gameboy
 import gameboy.cart.emu.{EmuCartConfig, EmuCartridge, Mbc3RtcAccess, RtcState}
 import lib.mem.{MemoryInterface, MemoryMap, PipelineInterfaceBridge, RegisterMap}
 import lib.util.ButtonFilter
-import lib.video.ColorARGB
+import lib.video.ColorRGB
 import net.gamebub.framework.interface._
 import lib.mem.MemoryArbiter
 import lib.mem.PipelineMemoryArbiter
@@ -226,7 +226,6 @@ class HandheldGameboy extends Module with Core {
   val videoX = RegInit(0.U(8.W))
   val videoY = RegInit(0.U(8.W))
   io.video.dataEnable := false.B
-  io.video.data.a := DontCare
   io.video.data.r := DontCare
   io.video.data.g := DontCare
   io.video.data.b := DontCare
@@ -245,7 +244,7 @@ class HandheldGameboy extends Module with Core {
       io.video.data.g := 0x1F.U(5.W)
       io.video.data.b := 0x1F.U(5.W)
     } .otherwise {
-      io.video.data := configRegDmgOffColor.asTypeOf(ColorARGB.rgb555())
+      io.video.data := configRegDmgOffColor.asTypeOf(ColorRGB(5, 5, 5))
     }
 
     when (videoY === 144.U) {
@@ -283,7 +282,7 @@ class HandheldGameboy extends Module with Core {
         io.video.data.b := gameboy.io.ppu.pixel(14, 10)
       } .otherwise {
         val index = gameboy.io.ppu.dmgColor.asUInt
-        io.video.data := dmgPalette(index).asTypeOf(ColorARGB.rgb555())
+        io.video.data := dmgPalette(index).asTypeOf(ColorRGB(5, 5, 5))
       }
     }
   }

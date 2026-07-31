@@ -4,7 +4,7 @@ import chisel3._
 import chisel3.util._
 import _root_.circt.stage.ChiselStage
 import lib.mem.{MemoryInterface, MemoryMap, RegisterMap}
-import lib.video.{Color, ColorARGB}
+import lib.video.{Color, ColorARGB, ColorRGB}
 import xilinx.{XpmCdcHandshake, XpmCdcSingle, XpmCdcSyncRst}
 import net.gamebub.framework.interface._
 import net.gamebub.framework.Core
@@ -227,8 +227,8 @@ class HandheldTop[T <: Core](coreFactory: () => T, revision: Revision) extends M
   }
 
   // Video filter
-  val videoFilterIn = Wire(ColorARGB(0, videoColorDepth, videoColorDepth, videoColorDepth))
-  val videoFilterOut = Wire(ColorARGB(0, 8, 8, 8))
+  val videoFilterIn = Wire(ColorRGB(videoColorDepth))
+  val videoFilterOut = Wire(ColorRGB(8))
   val videoFilterReset = Wire(Reset())
   val (
     videoFilterLatency: Int,
@@ -570,7 +570,7 @@ class HandheldTop[T <: Core](coreFactory: () => T, revision: Revision) extends M
     }
     val framebufferRead = MuxLookup(framebufferIndex, 0.U)(
       (0 until 2).map(i => i.U -> RegNext(RegNext(framebuffers(i).readPorts(0).data)))
-    ).asTypeOf(ColorARGB(0, videoColorDepth, videoColorDepth, videoColorDepth))
+    ).asTypeOf(ColorRGB(videoColorDepth))
 
     // Apply core video filter
     videoFilterIn := framebufferRead
@@ -595,7 +595,7 @@ class HandheldTop[T <: Core](coreFactory: () => T, revision: Revision) extends M
 
     val framebufferInBounds = Wire(Bool())
     val overlayInBounds = Wire(Bool())
-    val videoOutput = ColorARGB(0, 8, 8, 8).makeBlack()
+    val videoOutput = ColorRGB(8, 8, 8).make(r = 0, g = 0, b = 0)
     when (framebufferInBounds) {
       videoOutput := framebufferColor.convertTo(videoOutput)
     }
@@ -611,7 +611,7 @@ class HandheldTop[T <: Core](coreFactory: () => T, revision: Revision) extends M
     dpiDriverIo.lastRenderedFrame := lastFrameComplete
     io.lcd := dpiDriverIo.signals
     val lcdData = videoOutput.convertTo(
-      ColorARGB(0,
+      ColorRGB(
         revision.displayColorDepth,
         revision.displayColorDepth,
         revision.displayColorDepth,
@@ -629,7 +629,7 @@ class HandheldTop[T <: Core](coreFactory: () => T, revision: Revision) extends M
     io.hdmiAudio := VecInit(audioData.left.asUInt, audioData.right.asUInt)
     io.hdmiAudioClock := DontCare
     // Pad to 24-bit RGB.
-    io.hdmiRgb := videoOutput.convertTo(ColorARGB(0, 8, 8, 8)).asUInt
+    io.hdmiRgb := videoOutput.convertTo(ColorRGB(8, 8, 8)).asUInt
     val regHdmiFrame = RegInit(0.U(1.W))
 
     val hdmiEnable = XpmCdcSingle(clock, controlDock.docked)
@@ -840,8 +840,7 @@ class HandheldTop[T <: Core](coreFactory: () => T, revision: Revision) extends M
       // Core framebuffer write and SPI framebuffer read share the same read/write port,
       // so ensure that they're not activated at the same time (so they can be inferred correctly).
       val address = (framebufferY * videoWidth.U(10.W)) + framebufferX
-      val data = Wire(ColorARGB(0, videoColorDepth, videoColorDepth, videoColorDepth))
-      data.a := 0.U
+      val data = Wire(ColorRGB(videoColorDepth))
       data.r := coreVideo.dataR
       data.g := coreVideo.dataG
       data.b := coreVideo.dataB

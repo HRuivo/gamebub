@@ -2,7 +2,7 @@ package net.gamebub.framework.interface
 
 import chisel3._
 import chisel3.util._
-import lib.video.ColorARGB
+import lib.video.ColorRGB
 
 class VideoV0(
   /// Width of the video output, in pixels
@@ -14,7 +14,7 @@ class VideoV0(
   /// Target frame period, in seconds.
   val framePeriod: Double,
 ) extends Bundle {
-  val data = Output(ColorARGB.apply(0, colorDepth, colorDepth, colorDepth))
+  val data = Output(ColorRGB.apply(colorDepth))
   val dataEnable = Output(Bool())
   val vblank = Output(Bool())
   val hblank = Output(Bool())
