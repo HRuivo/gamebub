@@ -14,7 +14,6 @@ import lib.mem.sdram.BurstSdramController
 import lib.mem.PipelineMemoryBurstCdc
 import xilinx.MMCM
 import net.gamebub.framework.Core
-import net.gamebub.framework.CoreIo
 
 object HandheldGameboy {
   class Config extends Bundle {
@@ -26,7 +25,7 @@ object HandheldGameboy {
 
 class HandheldGameboy extends Module with Core {
   val displayDivider = (HandheldGameboy.mmcmVcoHz / ClocksV0.getClockDisplayHz(1.0 / 60.0)._1).floor.toInt
-  val io = IO(new CoreIo {
+  val io = IO(new Bundle {
     val clocks = new ClocksV0(
       // ~ 8.3886 MHz
       clockSystemHz = (HandheldGameboy.mmcmVcoHz / 112).toInt,

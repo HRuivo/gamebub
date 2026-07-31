@@ -13,13 +13,12 @@ import chisel3.simulator.PeekPokeAPI.TestableData
 import gba.MmioMap.ReadFn
 import xilinx.MMCM
 import net.gamebub.framework.Core
-import net.gamebub.framework.CoreIo
 
 class HandheldBoot extends Module with Core {
     val mmcmVcoHz = 50_000_000.toDouble / 3 * 56.375
     val displayDivider = (mmcmVcoHz / ClocksV0.getClockDisplayHz(1.0 / 60.0)._1).floor.toInt
 
-    val io = IO(new CoreIo {
+    val io = IO(new Bundle {
         val clocks = new ClocksV0(
             clockSystemHz = (mmcmVcoHz / 56).toInt,
             clockDisplayHz = (mmcmVcoHz / displayDivider).toInt,
@@ -31,19 +30,11 @@ class HandheldBoot extends Module with Core {
             colorDepth = 5,
             framePeriod = 1.0 / 60.0,
         )
-        val audio = new AudioV0()
         val host = new HostV0(overlayColorDepth = ColorARGB.argb1555())
         val pmod = new PmodV0()
-        val input = new InputV0()
         val cartridge = new CartridgePortV0()
         val link = new LinkPortV0()
-
-        // TODO: exclude sram and sdram
-        val sram = new SramV0()
-        val sdram = new SdramV0()
     })
-
-    stubUnused()
 
     // Main MMCM
     val mmcm = Module(new MMCM(
@@ -323,33 +314,5 @@ class HandheldBoot extends Module with Core {
     }
     when (cpu.io.mem_valid && cpu.io.mem_instr) {
         regLastCpuPc := cpu.io.mem_addr
-    }
-
-    private def stubUnused(): Unit = {
-        io.input.vibrate := InputV0.Vibrate.Off
-        io.audio.left := 0.S
-        io.audio.right := 0.S
-
-        // SRAM unused
-        io.sram.ceN := true.B
-        io.sram.weN := true.B
-        io.sram.oeN := true.B
-        io.sram.writeMaskN := true.B
-        io.sram.address := DontCare
-        io.sram.dataOut := DontCare
-        io.sram.dataDir := false.B
-
-        // SDRAM unused
-        io.sdram.clock := false.B.asClock
-        io.sdram.cke := false.B
-        io.sdram.cs := true.B
-        io.sdram.ras := true.B
-        io.sdram.cas := true.B
-        io.sdram.we := true.B
-        io.sdram.dqm := DontCare
-        io.sdram.bank := DontCare
-        io.sdram.address := DontCare
-        io.sdram.dataOut := DontCare
-        io.sdram.dataDir := false.B
     }
 }

@@ -168,7 +168,7 @@ class HandheldTop[T <: Core](coreFactory: () => T, revision: Revision) extends M
   val (
     clockSpi: Clock,
     clockDisplayHz: Int
-  ) = core.io.elements.get("clocks") match {
+  ) = core.getInterface("clocks") match {
     case Some(clocks: ClocksV0) => {
       clocks.clockIn50M := io.clockIn50Mhz
       io.clockOutLocked := clocks.locked
@@ -198,7 +198,7 @@ class HandheldTop[T <: Core](coreFactory: () => T, revision: Revision) extends M
     videoHeight: Int,
     videoFramePeriod: Double,
     videoColorDepth: Int,
-  ) = core.io.elements.get("video") match {
+  ) = core.getInterface("video") match {
     case Some(video: VideoV0) => {
       coreVideo.dataR := video.data.r
       coreVideo.dataG := video.data.g
@@ -222,7 +222,7 @@ class HandheldTop[T <: Core](coreFactory: () => T, revision: Revision) extends M
     val left = SInt(16.W)
     val right = SInt(16.W)
   })
-  core.io.elements.get("audio") match {
+  core.getInterface("audio") match {
     case Some(audio: AudioV0) => {
       coreAudioData.left := audio.left
       coreAudioData.right := audio.right
@@ -242,7 +242,7 @@ class HandheldTop[T <: Core](coreFactory: () => T, revision: Revision) extends M
   val coreHostInterface = Wire(new MemoryInterface(addressWidth = 31, dataWidth = 32))
   val (
     overlayColorDepth: Color,
-  ) = core.io.elements.get("host") match {
+  ) = core.getInterface("host") match {
     case Some(host: HostV0) => {
       host.enable := coreHost.enable
       host.reset := coreHost.reset
@@ -256,7 +256,7 @@ class HandheldTop[T <: Core](coreFactory: () => T, revision: Revision) extends M
   }
 
   // PMOD
-  core.io.elements.get("pmod") match {
+  core.getInterface("pmod") match {
     case Some(pmod: PmodV0) => {
       io.pmod <> pmod
     }
@@ -270,7 +270,7 @@ class HandheldTop[T <: Core](coreFactory: () => T, revision: Revision) extends M
   // Input
   val coreInput = Wire(new InputV0.Buttons)
   val coreVibrate = Wire(InputV0.Vibrate())
-  core.io.elements.get("input") match {
+  core.getInterface("input") match {
     case Some(input: InputV0) => {
       input.buttons := coreInput
       coreVibrate := input.vibrate
@@ -282,7 +282,7 @@ class HandheldTop[T <: Core](coreFactory: () => T, revision: Revision) extends M
   }
 
   // Cartridge Port
-  core.io.elements.get("cartridge") match {
+  core.getInterface("cartridge") match {
     case Some(cartridge: CartridgePortV0) => {
       io.cartridge <> cartridge
     }
@@ -305,7 +305,7 @@ class HandheldTop[T <: Core](coreFactory: () => T, revision: Revision) extends M
   }
 
   // Link Port
-  core.io.elements.get("link") match {
+  core.getInterface("link") match {
     case Some(link: LinkPortV0) => {
       io.link <> link
     }
@@ -323,7 +323,7 @@ class HandheldTop[T <: Core](coreFactory: () => T, revision: Revision) extends M
   }
 
   // SRAM
-  core.io.elements.get("sram") match {
+  core.getInterface("sram") match {
     case Some(sram: SramV0) => {
       io.sram <> sram
     }
@@ -340,7 +340,7 @@ class HandheldTop[T <: Core](coreFactory: () => T, revision: Revision) extends M
   }
 
   // SDRAM
-  core.io.elements.get("sdram") match {
+  core.getInterface("sdram") match {
     case Some(sdram: SdramV0) => {
       io.sdram <> sdram
     }
