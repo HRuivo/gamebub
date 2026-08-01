@@ -413,7 +413,9 @@ impl CoreManager {
             };
 
             log::info!("Load file {} from {}", info.label, path.display());
-            let mut file = match File::open(&path) {
+            let file = File::open(&path);
+            self.selected_files[i] = Some(path);
+            let mut file = match file {
                 Ok(file) => file,
                 Err(_) if info.optional && info.initialize => {
                     log::info!("Failed to open file, clearing");
@@ -429,7 +431,6 @@ impl CoreManager {
                 }
             };
 
-            self.selected_files[i] = Some(path);
             self.get_core_handler()
                 .unwrap()
                 .on_before_file_load(info.id, &mut file)
