@@ -70,7 +70,7 @@ where
         self.write_cmd(0x3A, &[0x66])?;
 
         // Interface Mode Control: use separate SPI read/write wires
-        // TODO: THIS SHOULD BE 0b1000_0000 -- use the same SDA wire,
+        // Note: THIS SHOULD BE 0b1000_0000 -- use the same SDA wire,
         //    because ILI9488 does *NOT* tri-state SDO when CS is high,
         //    meaning it screws up the SPI bus. It should be *disconnected*
         //    (or in a board revision, a tri-state buffer added.)

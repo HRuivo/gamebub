@@ -116,36 +116,6 @@ enum CoreHandlerImpl {
 /// # CoreManager
 ///
 /// Manages the lifecycle of cores.
-///
-/// ### Load
-///  * Stage: LoadInit
-///    * Make N file select requests (and service directory changes)
-///  * Stage: LoadBitstream
-///  * Call: on_before_program (returns bitstream)
-///  * ... load the bitstream
-///  * Call: on_after_program
-///  * Set cartridge power (if needed)
-///  * For each file (N):
-///    * Call: on_before_file_load (returns path)
-///    ... load the file, calling on_peek_file_load ...
-///    * Call: on_after_file_load
-///  * Call: on_before_run
-///  * Tell core to go (??)
-///
-/// ### Menu open or close (pause / unpause)
-///  * Call: on_focus_changed
-///  * Tell core (??)
-///
-/// ### Stop
-///  * Call: on_before_stop
-///  * Tell core (??)
-///  * For each file (N):
-///    ... skip if file not persistent or is read only ...
-///    * Call: on_before_file_save
-///    ... read and save the file to disk ...
-///    * Call: on_after_file_save
-///  * Cut cartridge power
-///  * Reload boot bitstream
 impl CoreManager {
     fn new() -> Self {
         CoreManager {
@@ -393,8 +363,6 @@ impl CoreManager {
             ui::send(ui::Message::CoreLoadError(e.to_string()));
             return;
         }
-
-        // TODO: replace with generic loading sequence
 
         let result = self.get_core_handler().unwrap().on_before_run();
         if let Err(err) = result {

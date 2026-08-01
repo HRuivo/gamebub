@@ -199,9 +199,6 @@ impl CoreHandler for Gameboy {
         let mut device = Device::lock();
         self.initialize(&mut device).map_err(|e| e.to_string())?;
 
-        // Take out of reset before setting registers.
-        // TODO: ???
-
         if let Some(rom_header) = self.rom_header.as_ref() {
             // Configure RTC if needed
             if let Some((rtc_state, rtc_latched)) = self.rtc_state {
