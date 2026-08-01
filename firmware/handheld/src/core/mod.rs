@@ -1,6 +1,6 @@
 use std::{
     fs::File,
-    io::Write,
+    io::{BufReader, BufWriter, ErrorKind, Write},
     ops::DerefMut as _,
     path::{Path, PathBuf},
     sync::{LazyLock, Mutex, MutexGuard},
@@ -10,17 +10,20 @@ use std::{
 use esp_idf_svc::hal::units::Hertz;
 use thiserror::Error;
 
+use self::CoreError::*;
 use crate::{
     bitstream,
-    core::{info::CoreFile, CoreError::*},
     device::{
         drivers::fpga::{self, SpiCommand, MAX_SPI_READ_CLOCK},
         Device,
     },
     ui,
 };
+use info::{CoreFile, CoreInfo};
+use settings::CoreSettings;
 
 mod info;
+mod settings;
 
 const PROGRESS_UPDATE_INTERVAL: Duration = Duration::from_millis(250);
 #[allow(unused)]
@@ -32,10 +35,14 @@ const COMMAND_NOTIFY_FOCUS: u32 = 0x0200_0000;
 static CORE_MANAGER: LazyLock<Mutex<CoreManager>> =
     LazyLock::new(|| Mutex::new(CoreManager::new()));
 
+pub const DIR_SDCARD: &str = "/sdcard/";
+pub const DIR_SETTINGS: &str = "/sdcard/settings/";
+
 pub struct CoreManager {
     stage: Stage,
     core_info: Option<&'static info::CoreInfo>,
     core_handler: CoreHandlerImpl,
+    core_settings: Option<CoreSettings>,
     selected_files: Vec<Option<PathBuf>>,
     run_cartridge: bool,
 }
@@ -145,6 +152,7 @@ impl CoreManager {
             core_info: None,
             stage: Stage::Idle,
             core_handler: CoreHandlerImpl::None,
+            core_settings: None,
             selected_files: Vec::new(),
             run_cartridge: false,
         }
@@ -180,9 +188,38 @@ impl CoreManager {
 
         self.stage = Stage::LoadInit;
         self.run_cartridge = run_cartridge;
+        self.core_settings = Self::load_settings(core);
+        self.core_settings.get_or_insert_default();
 
         self.selected_files = vec![None; core.files.len()];
         self.next_file_select();
+    }
+
+    fn load_settings(core: &CoreInfo) -> Option<CoreSettings> {
+        let file = match File::open(core.get_settings_path()) {
+            Ok(file) => file,
+            Err(_) => {
+                log::warn!("Failed to open settings file");
+                return None;
+            }
+        };
+        let reader = BufReader::with_capacity(256, file);
+        let mut settings: CoreSettings = match serde_json::from_reader(reader) {
+            Ok(x) => x,
+            Err(_) => {
+                log::warn!("Failed to parse settings file");
+                return None;
+            }
+        };
+
+        // Only keep file paths that belong to user-selected files.
+        settings
+            .file_paths
+            .retain(|(i, _)| core.files.iter().any(|f| f.id == *i && f.user_selected));
+        // TODO: validate non-path settings
+        settings.settings.clear();
+
+        Some(settings)
     }
 
     /// Temporary transitional method
@@ -202,6 +239,9 @@ impl CoreManager {
             if let Err(e) = self.persist_files() {
                 log::error!("Error saving: {}", e);
             }
+            if let Err(e) = self.persist_settings() {
+                log::error!("Error saving settings: {}", e);
+            }
         }
         self.reset_state();
     }
@@ -212,6 +252,9 @@ impl CoreManager {
 
             if let Err(e) = self.persist_files() {
                 log::error!("Error saving: {}", e);
+            }
+            if let Err(e) = self.persist_settings() {
+                log::error!("Error saving settings: {}", e);
             }
         }
 
@@ -230,6 +273,7 @@ impl CoreManager {
     fn reset_state(&mut self) {
         self.core_info = None;
         self.core_handler = CoreHandlerImpl::None;
+        self.core_settings = None;
         self.stage = Stage::Idle;
         self.selected_files.clear();
 
@@ -313,16 +357,27 @@ impl CoreManager {
             }
             break index;
         };
-
-        // TODO: use correct starting directory
-        let path = Path::new("/sdcard");
         let file = &core.files[index];
 
+        // Get the starting path for the file browser.
+        let last_path = self
+            .core_settings
+            .as_ref()
+            .and_then(|x| x.file_paths.iter().find(|(id, _)| *id == file.id))
+            .map(|(_, path)| path.as_path());
+        let mut initial_dir = last_path
+            .and_then(|p| p.parent())
+            .unwrap_or(Path::new(DIR_SDCARD));
+        if !std::fs::exists(initial_dir).unwrap_or(false) {
+            initial_dir = Path::new(DIR_SDCARD);
+        }
+
+        // TODO: Start with the last file already selected (not just directory).
         ui::send(ui::Message::CoreFileSelectBegin {
             label: file.label.to_string(),
-            path: path.into(),
+            path: initial_dir.to_path_buf(),
         });
-        self.send_core_file_list(path);
+        self.send_core_file_list(&initial_dir.to_path_buf());
     }
 
     fn finish_loading(&mut self) {
@@ -554,6 +609,21 @@ impl CoreManager {
         Ok(())
     }
 
+    /// Called to persist core settings to the core settings JSON file
+    pub fn persist_settings(&mut self) -> Result<(), std::io::Error> {
+        assert!(self.stage == Stage::Running);
+        let core = self.core_info.unwrap();
+        let settings = self.core_settings.as_ref().unwrap();
+
+        if !std::fs::exists(DIR_SETTINGS)? {
+            std::fs::create_dir(DIR_SETTINGS)?;
+        }
+        let file = File::create(core.get_settings_path())?;
+        let writer = BufWriter::with_capacity(256, file);
+        serde_json::to_writer(writer, settings)
+            .map_err(|e| std::io::Error::new(ErrorKind::Other, e))
+    }
+
     /// Called when a file has been selected for the core.
     /// This could be a file or a directory.
     pub fn handle_file_selected(&mut self, path: PathBuf) {
@@ -562,6 +632,13 @@ impl CoreManager {
             let Stage::LoadSelectFile(file_index) = self.stage else {
                 panic!()
             };
+
+            // Update settings
+            let settings = self.core_settings.as_mut().unwrap();
+            let file_id = self.core_info.as_ref().unwrap().files[file_index].id;
+            settings.file_paths.retain(|x| x.0 != file_id);
+            settings.file_paths.push((file_id, path.clone()));
+
             self.selected_files[file_index] = Some(path);
             self.next_file_select();
         } else if path.is_dir() {

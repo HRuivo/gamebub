@@ -1,3 +1,5 @@
+use std::path::PathBuf;
+
 use crate::device::drivers::fpga;
 
 #[allow(unused)]
@@ -43,6 +45,15 @@ pub struct CoreFile {
     /// Word size during transfer
     /// TODO: remove this, make all transfers 32-bit
     pub transfer_word_size: fpga::FpgaSpiWordSize,
+}
+
+impl CoreInfo {
+    pub fn get_settings_path(&self) -> PathBuf {
+        let mut p = PathBuf::from(super::DIR_SETTINGS);
+        p.push(self.id);
+        p.add_extension("json");
+        p
+    }
 }
 
 static CORES: &[CoreInfo] = &[
