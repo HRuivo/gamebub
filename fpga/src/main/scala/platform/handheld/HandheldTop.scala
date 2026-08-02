@@ -4,7 +4,7 @@ import chisel3._
 import chisel3.util._
 import _root_.circt.stage.ChiselStage
 import lib.mem.{HandshakeMemoryCdc, MemoryInterface, MemoryMap, RegisterMap}
-import lib.video.{Color, ColorARGB, ColorCorrection, ColorGrayscale}
+import lib.video.{Color, ColorARGB, ColorCorrection}
 import xilinx.{XpmCdcHandshake, XpmCdcSingle, XpmCdcSyncRst}
 import net.gamebub.framework.interface._
 import net.gamebub.framework.Core
@@ -93,6 +93,8 @@ object HandheldTop extends App {
       case _ => throw new IllegalArgumentException("invalid revision " + name)
     }
   }
+
+  var overlayFullDepth: Boolean = false
 }
 
 class HandheldInterrupts extends Bundle {
@@ -243,16 +245,11 @@ class HandheldTop[T <: Core](coreFactory: () => T, revision: Revision) extends M
     val reset = Bool()
   })
   val coreHostInterface = Wire(new MemoryInterface(addressWidth = 31, dataWidth = 32))
-  val (
-    overlayColorDepth: Color,
-  ) = core.getInterface("host") match {
+  core.getInterface("host") match {
     case Some(host: HostV0) => {
       host.enable := coreHost.enable
       host.reset := coreHost.reset
       host.mem <> coreHostInterface
-      (
-        host.getOverlayColorDepth,
-      )
     }
     case Some(x) => throw new CoreException("Unknown 'host': " + x.getClass())
     case None => throw new CoreException("'host' is required")
@@ -514,8 +511,9 @@ class HandheldTop[T <: Core](coreFactory: () => T, revision: Revision) extends M
 
   val overlayWidth = revision.overlayWidth
   val overlayHeight = revision.overlayHeight
+  val overlayBits = if (HandheldTop.overlayFullDepth) { 16 } else { 2 }
   val overlayFramebuffer = SRAM(
-    overlayWidth * overlayHeight, UInt(overlayColorDepth.getWidth.W),
+    overlayWidth * overlayHeight, UInt(overlayBits.W),
     readPortClocks = Seq(io.clock_av), writePortClocks = Seq(clock), readwritePortClocks = Seq(),
   )
 
@@ -596,9 +594,18 @@ class HandheldTop[T <: Core](coreFactory: () => T, revision: Revision) extends M
     // Similar for overlay framebuffer.
     overlayFramebuffer.readPorts(0).enable := true.B
     overlayFramebuffer.readPorts(0).address := overlayReadAddress
-    val overlayRead = RegNext(RegNext(overlayFramebuffer.readPorts(0).data))
-      .asTypeOf(overlayColorDepth)
-      .convertTo(ColorARGB(1, 8, 8, 8))
+    val overlayReadRaw = RegNext(RegNext(overlayFramebuffer.readPorts(0).data))
+    val overlayRead = if (HandheldTop.overlayFullDepth) {
+      overlayReadRaw.asTypeOf(ColorARGB(1, 5, 5, 5)).convertTo(ColorARGB(1, 8, 8, 8))
+    } else {
+      val lum = VecInit(DontCare, 0x0.U, 0x80.U, 0xFF.U)(overlayReadRaw)
+      val color = Wire(ColorARGB(1, 8, 8, 8))
+      color.a := overlayReadRaw =/= 0.U
+      color.r := lum
+      color.g := lum
+      color.b := lum
+      color
+    }
 
     val framebufferInBounds = Wire(Bool())
     val overlayInBounds = Wire(Bool())
@@ -790,21 +797,24 @@ class HandheldTop[T <: Core](coreFactory: () => T, revision: Revision) extends M
     io.dac.data := regSample(regSample.getWidth - 1)
   }
 
-  // Overlay access.
-  // TODO: consider switching to (or adding) a method of writing where
-  // there's a "target x" and "target y" register, and you write to a single
-  // memory location, which auto-increments the x. Then, have registers for
-  // minX (where it wraps to) and maxX (when it wraps), which allows for easy
-  // partial rectangular updates.
+  // Overlay (host UI) access.
   overlayInterface.dataRead := DontCare
   overlayInterface.done := false.B
   overlayFramebuffer.writePorts(0).enable := overlayInterface.enable && overlayInterface.write
   overlayFramebuffer.writePorts(0).address := (overlayInterface.address >> 1).asUInt
-  overlayFramebuffer.writePorts(0).data :=
-    overlayInterface.dataWrite
-      .asTypeOf(ColorARGB.argb1555())
-      .convertTo(overlayColorDepth)
-      .asUInt
+  val overlayWriteData = overlayInterface.dataWrite.asTypeOf(ColorARGB.argb1555())
+  if (HandheldTop.overlayFullDepth) {
+    // Full depth color (16 bit), no conversion
+    overlayFramebuffer.writePorts(0).data := overlayWriteData.asUInt
+  } else {
+    // Downconvert to reduced 2-bit palette:
+    // [transparent, black, gray, white]
+    val color = WireDefault(0.U(2.W))
+    when (overlayWriteData.a.asBool) {
+      color := VecInit(1.U, 2.U, 2.U, 3.U)(overlayWriteData.r(4, 3))
+    }
+    overlayFramebuffer.writePorts(0).data := color
+  }
   overlayInterface.done := RegNext(overlayInterface.enable)
 
   // Framebuffer read via SPI.

@@ -30,11 +30,12 @@ class HandheldBoot extends Module with Core {
             colorDepth = 5,
             framePeriod = 1.0 / 60.0,
         )
-        val host = new HostV0(overlayColorDepth = ColorARGB.argb1555())
+        val host = new HostV0()
         val pmod = new PmodV0()
         val cartridge = new CartridgePortV0()
         val link = new LinkPortV0()
     })
+    HandheldTop.overlayFullDepth = true
 
     // Main MMCM
     val mmcm = Module(new MMCM(
