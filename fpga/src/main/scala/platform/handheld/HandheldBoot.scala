@@ -82,7 +82,7 @@ class HandheldBoot extends Module with Core {
     val registerInterface = Wire(new MemoryInterface(addressWidth = 16, dataWidth = 32))
     val hostMemInterface = Wire(new MemoryInterface(addressWidth = 16, dataWidth = 32))
     val hostFifoInterface = Wire(new MemoryInterface(addressWidth = 24, dataWidth = 32))
-    io.host.mem <> MemoryMap(
+    val memoryMap = MemoryMap(
         addressWidth = 32,
         dataWidth = 32,
         entries = Seq(
@@ -91,6 +91,8 @@ class HandheldBoot extends Module with Core {
             0x05.U(8.W) -> hostMemInterface,
             0x06.U(8.W) -> hostFifoInterface,
         ))
+    io.host.mem.unsafe :<>= memoryMap.unsafe
+    memoryMap.writeStrobe := "b1111".U
 
     // Require host MCU to specify how many bytes it intends to read.
     // This is because the SPI receiver will pre-fetch reads (so we'll read an extra

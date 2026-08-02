@@ -141,7 +141,7 @@ class HandheldGameboy extends Module with Core {
   val dmgPaletteInterface = Wire(new MemoryInterface(addressWidth = 5, dataWidth = 16))
   val colorCorrectInterface = Wire(new MemoryInterface(addressWidth = 9, dataWidth = 16))
   val commandInterface = Wire(new MemoryInterface(addressWidth = 16, dataWidth = 32))
-  io.host.mem <> MemoryMap(
+  val memoryMap = MemoryMap(
     addressWidth = 32,
     dataWidth = 32,
     entries = Seq(
@@ -153,6 +153,8 @@ class HandheldGameboy extends Module with Core {
       0x5.U(4.W) -> colorCorrectInterface,
       0xF0.U(8.W) -> commandInterface,
     ))
+  io.host.mem.unsafe :<>= memoryMap.unsafe
+  memoryMap.writeStrobe := "b1111".U
 
   suppressEnumCastWarning {
     registerInterface <> RegisterMap(

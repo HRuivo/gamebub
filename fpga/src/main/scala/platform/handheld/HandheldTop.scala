@@ -275,7 +275,7 @@ class HandheldTop[T <: Core](coreFactory: () => T, revision: Revision) extends M
   val coreCommandCore = Wire(new HostV0.CommandChannel)
   core.getInterface("host") match {
     case Some(host: HostV0) => {
-      host.mem <> coreHostInterface
+      coreHostInterface.unsafe :<>= host.mem.unsafe
       host.commandHost <> coreCommandHost
       host.commandCore <> coreCommandCore
     }
