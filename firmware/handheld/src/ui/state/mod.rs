@@ -26,6 +26,7 @@ pub struct UiState {
 
     settings: settings::SettingsState,
     core_file_select_directory: PathBuf,
+    core_file_select_filename: String,
     core_file_select_timer: Timer,
 }
 
@@ -38,6 +39,7 @@ impl UiState {
             notification_active: false,
             settings: settings::SettingsState::default(),
             core_file_select_directory: PathBuf::new(),
+            core_file_select_filename: String::new(),
             core_file_select_timer: Timer::default(),
         };
         let state = Rc::new(RefCell::new(state));

@@ -58,7 +58,21 @@ impl UiState {
     }
 
     pub fn cores_file_select_begin(&mut self, label: String, path: PathBuf) {
-        self.core_file_select_directory = path;
+        // `path` may be either a specific file (in which case
+        // that file should be selected), or a directory.
+        if path.is_file() {
+            self.core_file_select_filename =
+                path.file_name().unwrap().to_str().unwrap().to_string();
+            self.core_file_select_directory = {
+                let mut path = path;
+                path.pop();
+                path
+            };
+        } else {
+            self.core_file_select_filename.clear();
+            self.core_file_select_directory = path;
+        }
+
         let root = self.root.unwrap();
         let backend = root.global::<Backend>();
         root.invoke_set_title(format!("Select {label}").into());
@@ -73,8 +87,10 @@ impl UiState {
     pub fn cores_file_select_list(&mut self, files: Vec<(String, bool)>) {
         // TODO: add .. (or do that in worker)
 
-        // TODO: have some continuity during up/down navigation (mark the last selected file if possible)
-        let selected = 0usize;
+        let selected = files
+            .iter()
+            .position(|(f, _)| *f == self.core_file_select_filename)
+            .unwrap_or(0);
 
         let files = ModelRc::from(Rc::new(VecModel::from(
             files
@@ -136,12 +152,21 @@ impl UiState {
                 return;
             }
 
+            // Highlight the directory we're just leaving.
+            self.core_file_select_filename = self
+                .core_file_select_directory
+                .file_name()
+                .unwrap()
+                .to_str()
+                .unwrap()
+                .to_string();
             self.core_file_select_directory.pop();
             worker::send(worker::Message::CoreFileSelected(
                 self.core_file_select_directory.clone(),
             ));
         } else if path.is_dir() {
             log::info!("Entering subdirectory {}", filename);
+            self.core_file_select_filename.clear();
             self.core_file_select_directory.push(filename);
             worker::send(worker::Message::CoreFileSelected(
                 self.core_file_select_directory.clone(),

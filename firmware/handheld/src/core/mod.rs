@@ -335,19 +335,20 @@ impl CoreManager {
             .as_ref()
             .and_then(|x| x.file_paths.iter().find(|(id, _)| *id == file.id))
             .map(|(_, path)| path.as_path());
-        let mut initial_dir = last_path
-            .and_then(|p| p.parent())
-            .unwrap_or(Path::new(DIR_SDCARD));
-        if !std::fs::exists(initial_dir).unwrap_or(false) {
-            initial_dir = Path::new(DIR_SDCARD);
-        }
+        let last_dir = last_path.and_then(|p| p.parent());
 
-        // TODO: Start with the last file already selected (not just directory).
+        // Use the last path, or the last dir, or finally the root path.
+        let (initial_path, initial_dir) = match (last_path, last_dir) {
+            (Some(file), Some(parent)) if file.is_file() => (file, parent),
+            (_, Some(parent)) if parent.is_dir() => (parent, parent),
+            _ => (Path::new(DIR_SDCARD), Path::new(DIR_SDCARD)),
+        };
+
         ui::send(ui::Message::CoreFileSelectBegin {
             label: file.label.to_string(),
-            path: initial_dir.to_path_buf(),
+            path: initial_path.to_path_buf(),
         });
-        self.send_core_file_list(&initial_dir.to_path_buf());
+        self.send_core_file_list(initial_dir);
     }
 
     fn finish_loading(&mut self) {
@@ -622,7 +623,7 @@ impl CoreManager {
         self.stage = Stage::Idle;
     }
 
-    fn send_core_file_list(&mut self, path: &Path) {
+    fn send_core_file_list(&self, path: &Path) {
         let files = match self.list_core_files(&path) {
             Ok(files) => files,
             Err(e) => {
@@ -638,7 +639,7 @@ impl CoreManager {
     }
 
     /// Get the list of eligible files for the file select menu at the given directory
-    fn list_core_files(&mut self, path: &Path) -> std::io::Result<Vec<(String, bool)>> {
+    fn list_core_files(&self, path: &Path) -> std::io::Result<Vec<(String, bool)>> {
         // Assumes we're in a valid file selection stage.
         let file_index = match self.stage {
             Stage::LoadSelectFile(i) => i,
