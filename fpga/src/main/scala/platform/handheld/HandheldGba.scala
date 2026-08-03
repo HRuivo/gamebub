@@ -132,6 +132,7 @@ class HandheldGba extends Module with Core {
   io.clocks.clockOutSpi := mmcm.io.clockOuts(3)
   io.clocks.locked := mmcm.io.locked
 
+  val regCoreSetup = RegInit(false.B)
   val regCoreReset = RegInit(true.B)
   val regCoreFocus = RegInit(false.B)
 
@@ -225,33 +226,41 @@ class HandheldGba extends Module with Core {
 
   // Command interface
   val commandHostState = RegInit(CommandState.idle)
-  val regCommandHost0 = Reg(UInt(32.W))
+  val regCommandHost = Reg(Vec(2, UInt(32.W)))
   commandInterface <> RegisterMap(
     addressWidth = 16,
     dataWidth = 32,
-    entries = Seq(
-      0x0000 -> RegisterMap.Entry.rw(regCommandHost0),
-    )
+    entries =
+      regCommandHost.zipWithIndex.map { case (reg, i) => (0x0000 + (4 * i) -> RegisterMap.Entry.rw(reg)) }
   )
-  // Host -> Core Commands
+  // Host -> Core commands
   io.host.commandHost.busy := commandHostState === CommandState.busy
   io.host.commandHost.done := commandHostState === CommandState.done
   io.host.commandHost.error := commandHostState === CommandState.error
   when (io.host.commandHost.request) {
     when (commandHostState === CommandState.idle) {
-      val opcode = regCommandHost0(31, 16)
-      val arg = regCommandHost0(15, 0)
-      regCommandHost0 := 0.U
+      val command = regCommandHost(0)(15, 0)
+      for (reg <- regCommandHost) {
+        reg := 0.U
+      }
       commandHostState := CommandState.done
       
-      when (opcode === HostV0.CommandGetStatus.U) {
-        regCommandHost0 := 2.U
-      } .elsewhen (opcode === HostV0.CommandCoreRun.U) {
+      when (command === HostV0.CommandGetStatus.U) {
+        when (regCoreSetup) {
+          regCommandHost(0) := Mux(regCoreReset, HostV0.StatusCoreHalt.U, HostV0.StatusCoreRun.U)
+        } .otherwise {
+          // No pre-setup initialization to do.
+          regCommandHost(0) := HostV0.StatusSetup.U
+        }
+      } .elsewhen (command === HostV0.CommandSetupComplete.U) {
+        // No post-setup initialization to do.
+        regCoreSetup := true.B
+      } .elsewhen (command === HostV0.CommandCoreRun.U) {
         regCoreReset := false.B
-      } .elsewhen (opcode === HostV0.CommandCoreHalt.U) {
+      } .elsewhen (command === HostV0.CommandCoreHalt.U) {
         regCoreReset := true.B
-      } .elsewhen (opcode === HostV0.CommandNotifyFocus.U) {
-        regCoreFocus := arg(0)
+      } .elsewhen (command === HostV0.CommandNotifyFocus.U) {
+        regCoreFocus := regCommandHost(1)(0)
       } .otherwise {
         // Unknown command
         commandHostState := CommandState.error

@@ -6,7 +6,12 @@ object HostV0 {
     val CommandGetStatus = 0x0000
     val CommandCoreRun = 0x0100
     val CommandCoreHalt = 0x0101
+    val CommandSetupComplete = 0x0102
     val CommandNotifyFocus = 0x0200
+    val CommandFileWriteStart = 0x0300
+    val CommandFileWriteEnd = 0x0301
+    val CommandFileReadStart = 0x0302
+    val CommandFileReadEnd = 0x0303
 
     class CommandChannel extends Bundle {
         /** Whether a request is active: held high for the duration of the request. */
@@ -33,6 +38,17 @@ object HostV0 {
         /** Write data */
         val dataWrite = Input(UInt(32.W))
     }
+
+    /** Unknown status */
+    val StatusUnknown = 0
+    /** Initializing, preparing peripherals */
+    val StatusInitialize = 1
+    /** Ready for set up, data and register access. */
+    val StatusSetup = 2
+    /** The core is set up, but in a halted/reset state. */
+    val StatusCoreHalt = 3
+    /** The core is running. */
+    val StatusCoreRun = 4
 }
 
 class HostV0 extends Bundle {

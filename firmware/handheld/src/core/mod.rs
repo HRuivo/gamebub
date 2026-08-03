@@ -25,18 +25,36 @@ use settings::CoreSettings;
 mod info;
 mod settings;
 
-const PROGRESS_UPDATE_INTERVAL: Duration = Duration::from_millis(250);
-#[allow(unused)]
-const COMMAND_GET_STATUS: u32 = 0x0000_0000;
-const COMMAND_CORE_RUN: u32 = 0x0100_0000;
-const COMMAND_CORE_HALT: u32 = 0x0101_0000;
-const COMMAND_NOTIFY_FOCUS: u32 = 0x0200_0000;
-
 static CORE_MANAGER: LazyLock<Mutex<CoreManager>> =
     LazyLock::new(|| Mutex::new(CoreManager::new()));
 
+const PROGRESS_UPDATE_INTERVAL: Duration = Duration::from_millis(250);
+const SETUP_TIMEOUT: Duration = Duration::from_millis(100);
+
+#[allow(unused)]
+mod command {
+    // Commands
+    pub const GET_STATUS: u32 = 0x0000;
+    pub const CORE_RUN: u32 = 0x0100;
+    pub const CORE_HALT: u32 = 0x0101;
+    pub const SETUP_COMPLETE: u32 = 0x0102;
+    pub const NOTIFY_FOCUS: u32 = 0x0200;
+    pub const FILE_WRITE_START: u32 = 0x0300;
+    pub const FILE_WRITE_END: u32 = 0x0301;
+    pub const FILE_READ_START: u32 = 0x0302;
+    pub const FILE_READ_END: u32 = 0x0303;
+
+    // Status
+    pub const STATUS_UNKNOWN: u32 = 0;
+    pub const STATUS_INITIALIZE: u32 = 1;
+    pub const STATUS_SETUP: u32 = 2;
+    pub const STATUS_CORE_HALT: u32 = 3;
+    pub const STATUS_CORE_RUN: u32 = 4;
+}
+
 pub const DIR_SDCARD: &str = "/sdcard/";
 pub const DIR_SETTINGS: &str = "/sdcard/settings/";
+pub const CORE_POLL_INTERVAL: Duration = Duration::from_millis(5);
 
 pub struct CoreManager {
     stage: Stage,
@@ -68,6 +86,12 @@ pub enum CoreError {
     FileWrongSize(String, u32, u32),
     #[error("File {0} too big:\nMaximum {1} bytes\nActually {2} bytes")]
     FileTooBig(String, u32, u32),
+    #[error("Core command {0:04X} timed out")]
+    CommandTimeout(u32),
+    #[error("Core command {0:04X} failed")]
+    CommandFailed(u32),
+    #[error("Timed out waiting for core to be ready")]
+    CoreReadyTimeout,
 }
 
 /// Core-specific lifecycle callbacks.
@@ -200,8 +224,8 @@ impl CoreManager {
 
     /// Legacy method, should be core-specific (setting?)
     pub fn reset_core(&mut self) {
-        let _ = self.run_core_command(COMMAND_CORE_HALT, Duration::from_millis(5));
-        let _ = self.run_core_command(COMMAND_CORE_RUN, Duration::from_millis(5));
+        let _ = self.run_core_command(&[command::CORE_HALT], Duration::from_millis(5));
+        let _ = self.run_core_command(&[command::CORE_RUN], Duration::from_millis(5));
     }
 
     pub fn prepare_for_power_off(&mut self) {
@@ -218,7 +242,7 @@ impl CoreManager {
 
     pub fn exit_core(&mut self) {
         if self.stage == Stage::Running {
-            let _ = self.run_core_command(COMMAND_CORE_HALT, Duration::from_millis(50));
+            let _ = self.run_core_command(&[command::CORE_HALT], Duration::from_millis(50));
 
             if let Err(e) = self.persist_files() {
                 log::error!("Error saving: {}", e);
@@ -250,11 +274,36 @@ impl CoreManager {
         Device::lock().set_cart_power(false);
     }
 
-    fn run_core_command(&mut self, command: u32, timeout: Duration) -> Result<(), ()> {
+    fn poll_core_status(&mut self, expected: u32, timeout: Duration) -> Result<(), CoreError> {
+        let start = Instant::now();
+        loop {
+            if start.elapsed() > timeout {
+                return Err(CoreError::CoreReadyTimeout);
+            }
+            self.run_core_command(&[command::GET_STATUS], timeout)
+                .map_err(|_| CoreError::CommandFailed(command::GET_STATUS))?;
+
+            let status = Device::lock()
+                .fpga
+                .read_u32(fpga::REG_CMD_HOST_BASE)
+                .unwrap();
+            if status == expected {
+                return Ok(());
+            }
+            std::thread::sleep(CORE_POLL_INTERVAL);
+        }
+    }
+
+    fn run_core_command(&self, command: &[u32], timeout: Duration) -> Result<(), ()> {
+        assert!(command.len() > 0);
         // Write command and arguments
         {
             let mut device = Device::lock();
-            let _ = device.fpga.write_u32(fpga::REG_CMD_HOST_BASE, command);
+            for (i, &x) in command.iter().enumerate() {
+                let _ = device
+                    .fpga
+                    .write_u32(fpga::REG_CMD_HOST_BASE + (4 * i as u32), x);
+            }
             let _ = device.fpga.write_u32(fpga::REG_CTRL_CMD_HOST, 0b1000);
         }
 
@@ -262,7 +311,7 @@ impl CoreManager {
         let start = Instant::now();
         let status = loop {
             if start.elapsed() > timeout {
-                log::error!("Command {command:08X} timed out");
+                log::error!("Command {:08X} timed out", command[0]);
                 return Err(());
             }
             let mut device = Device::lock();
@@ -271,7 +320,7 @@ impl CoreManager {
                 break status;
             }
             drop(device);
-            std::thread::sleep(Duration::from_millis(5));
+            std::thread::sleep(CORE_POLL_INTERVAL);
         };
 
         // End command.
@@ -294,7 +343,7 @@ impl CoreManager {
         }
 
         let _ = self.run_core_command(
-            COMMAND_NOTIFY_FOCUS | (has_focus as u32),
+            &[command::NOTIFY_FOCUS, has_focus as u32],
             Duration::from_millis(5),
         );
 
@@ -354,6 +403,14 @@ impl CoreManager {
     fn finish_loading(&mut self) {
         self.load_bitstream();
 
+        // Wait for the core to be ready for setup.
+        if let Err(e) = self.poll_core_status(command::STATUS_SETUP, SETUP_TIMEOUT) {
+            self.exit_core();
+            ui::send(ui::Message::CoreLoadError(e.to_string()));
+            return;
+        }
+        ui::send(ui::Message::EnterGame);
+
         if self.run_cartridge {
             let mut device = Device::lock();
             device.set_cart_power(true);
@@ -372,12 +429,31 @@ impl CoreManager {
             return;
         }
 
+        // Tell the core we're finished setting up.
+        let result = self.run_core_command(&[command::SETUP_COMPLETE], Duration::from_millis(10));
+        if let Err(()) = result {
+            self.exit_core();
+            ui::send(ui::Message::CoreLoadError(
+                "Core setup command failed".into(),
+            ));
+            return;
+        }
+
+        // Wait for the core to be ready for run.
+        if let Err(e) = self.poll_core_status(command::STATUS_CORE_HALT, SETUP_TIMEOUT) {
+            self.exit_core();
+            ui::send(ui::Message::CoreLoadError(e.to_string()));
+            return;
+        }
+        log::info!("Core ready to run");
+
         // Clear loading bar
         ui::send(ui::Message::EnterGame);
         self.stage = Stage::Running;
-        // Resume
+
+        // Start core.
         let _ = Device::lock().fpga.write_u32(fpga::REG_CTRL_VIBRATE, 1);
-        let _ = self.run_core_command(COMMAND_CORE_RUN, Duration::from_millis(5));
+        let _ = self.run_core_command(&[command::CORE_RUN], Duration::from_millis(5));
         self.focus_changed(true);
     }
 
@@ -387,9 +463,6 @@ impl CoreManager {
         let bitstream_path = self.get_core_handler().unwrap().get_bitstream_path();
         bitstream::program_fpga(&bitstream_path);
         self.get_core_handler().unwrap().on_after_program();
-
-        // TODO: enter core loading screen
-        ui::send(ui::Message::EnterGame);
     }
 
     fn load_files(&mut self) -> Result<(), CoreError> {
