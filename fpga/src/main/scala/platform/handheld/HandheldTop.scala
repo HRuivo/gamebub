@@ -269,7 +269,7 @@ class HandheldTop[T <: Core](coreFactory: () => T, revision: Revision) extends M
     val enable = Bool()
     val reset = Bool()
   })
-  val coreHostInterface = Wire(new MemoryInterface(addressWidth = 31, dataWidth = 32))
+  val coreHostInterface = Wire(new MemoryInterface(addressWidth = 32, dataWidth = 32))
   core.getInterface("host") match {
     case Some(host: HostV0) => {
       host.enable := coreHost.enable
@@ -471,13 +471,13 @@ class HandheldTop[T <: Core](coreFactory: () => T, revision: Revision) extends M
     addressWidth = 32,
     dataWidth = 32,
     entries = Seq(
-      // 2 GiB region 0x0000_0000 - 0x7FFF_FFFF
-      0x00.U(1.W) -> coreHostInterface,
-
-      0x80.U(8.W) -> registerMap,
-      0x81.U(8.W) -> overlayInterface,
-      0x82.U(8.W) -> framebufferInterface,
-    ))
+      // Reserve 0xFxxx_xxxx and up for framework
+      0xF1.U(8.W) -> registerMap,
+      0xF2.U(8.W) -> overlayInterface,
+      0xF3.U(8.W) -> framebufferInterface,
+    ),
+    default = Some(coreHostInterface),
+  )
 
   when (spi.io.debugRequestOverflow) {
     controlInterruptPending.spiRequestFifoOverflow := true.B

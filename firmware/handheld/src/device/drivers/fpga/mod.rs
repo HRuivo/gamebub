@@ -17,23 +17,23 @@ use thiserror::Error;
 
 use crate::device::DisplayMode;
 
-pub const REG_INFO_FRAMEWORK_VER: u32 = 0x8000_0000;
-pub const REG_INFO_SYSCLK_HZ: u32 = 0x8000_0004;
-pub const REG_INFO_VIDEO_DIM: u32 = 0x8000_0100;
-pub const REG_INFO_VIDEO_DEPTH: u32 = 0x8000_0104;
+pub const REG_INFO_FRAMEWORK_VER: u32 = 0xF100_0000;
+pub const REG_INFO_SYSCLK_HZ: u32 = 0xF100_0004;
+pub const REG_INFO_VIDEO_DIM: u32 = 0xF100_0100;
+pub const REG_INFO_VIDEO_DEPTH: u32 = 0xF100_0104;
 
-pub const REG_CTRL_IRQ_ENABLE: u32 = 0x8000_1000;
-pub const REG_CTRL_IRQ_PENDING: u32 = 0x8000_1004;
-pub const REG_CTRL_BUTTON_FORCE: u32 = 0x8000_1008;
-pub const REG_CTRL_DOCK: u32 = 0x8000_100C;
-pub const REG_CTRL_FOCUS: u32 = 0x8000_1010;
-pub const REG_CTRL_VIBRATE: u32 = 0x8000_1014;
+pub const REG_CTRL_IRQ_ENABLE: u32 = 0xF100_1000;
+pub const REG_CTRL_IRQ_PENDING: u32 = 0xF100_1004;
+pub const REG_CTRL_BUTTON_FORCE: u32 = 0xF100_1008;
+pub const REG_CTRL_DOCK: u32 = 0xF100_100C;
+pub const REG_CTRL_FOCUS: u32 = 0xF100_1010;
+pub const REG_CTRL_VIBRATE: u32 = 0xF100_1014;
 
-pub const REG_STATUS_BUTTON: u32 = 0x8000_2000;
-pub const REG_STATUS_CART_SWITCH: u32 = 0x8000_2004;
+pub const REG_STATUS_BUTTON: u32 = 0xF100_2000;
+pub const REG_STATUS_CART_SWITCH: u32 = 0xF100_2004;
 
-pub const REG_TEMP_CORE_RESET: u32 = 0x8000_F000;
-pub const REG_TEMP_COLOR_CORRECT_ENABLE: u32 = 0x8000_F004;
+pub const REG_TEMP_CORE_RESET: u32 = 0xF100_F000;
+pub const REG_TEMP_COLOR_CORRECT_ENABLE: u32 = 0xF100_F004;
 
 /// The FPGA (due to the spi implementation) can read at a speed that's some
 /// fraction of the SPI domain clock speed. At 200 MHz SPI receiver clock,
@@ -305,7 +305,7 @@ where
         let command = SpiCommand::new(FpgaSpiWordSize::Bits16);
         // 16 bits per transfer, 2 cycles per transfer.
         let max_clock = (self.system_clock.0 * 16) / (4 * 2);
-        self.spi_write(Some(Hertz(max_clock)), command, 0x8100_0000 | offset, data)
+        self.spi_write(Some(Hertz(max_clock)), command, 0xF200_0000 | offset, data)
     }
 
     /// Get the state of the cartridge slot button.

@@ -8,7 +8,12 @@ import chisel3.util._
  * on the highest bits of the address.
  */
 object MemoryMap {
-  def apply (addressWidth: Int, dataWidth: Int, entries: Seq[(UInt, MemoryInterface)]): MemoryInterface = {
+  def apply (
+    addressWidth: Int,
+    dataWidth: Int,
+    entries: Seq[(UInt, MemoryInterface)],
+    default: Option[MemoryInterface] = None,
+  ): MemoryInterface = {
     val interface = Wire(new MemoryInterface(addressWidth, dataWidth))
 
     for ((x, i) <- entries.map(_._1).zipWithIndex) {
@@ -27,6 +32,8 @@ object MemoryMap {
       }
     }
 
+    val useDefault = WireDefault(true.B)
+
     // This will only take effect if none of the prefixes are matched.
     interface.dataRead := 0.U
     interface.done := true.B
@@ -41,11 +48,27 @@ object MemoryMap {
         mem.write := interface.write
         interface.dataRead := mem.dataRead
         interface.done := mem.done
+        useDefault := false.B
       } .otherwise {
         mem.enable := false.B
         mem.write := false.B
       }
     }
+
+    default.foreach(mem => {
+      mem.address := interface.address
+      mem.dataWrite := interface.dataWrite
+      mem.writeStrobe := interface.writeStrobe
+      mem.enable := false.B
+      mem.write := false.B
+
+      when (useDefault) {
+        mem.enable := interface.enable
+        mem.write := interface.write
+        interface.dataRead := mem.dataRead
+        interface.done := mem.done
+      }
+    })
     
     interface
   }
