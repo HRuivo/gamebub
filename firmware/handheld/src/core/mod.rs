@@ -29,6 +29,7 @@ static CORE_MANAGER: LazyLock<Mutex<CoreManager>> =
     LazyLock::new(|| Mutex::new(CoreManager::new()));
 
 const PROGRESS_UPDATE_INTERVAL: Duration = Duration::from_millis(250);
+const NOTIFY_TIMEOUT: Duration = Duration::from_millis(10);
 const SETUP_TIMEOUT: Duration = Duration::from_millis(100);
 
 #[allow(unused)]
@@ -226,8 +227,8 @@ impl CoreManager {
 
     /// Legacy method, should be core-specific (setting?)
     pub fn reset_core(&mut self) {
-        let _ = self.run_core_command(&[command::CORE_HALT], Duration::from_millis(5));
-        let _ = self.run_core_command(&[command::CORE_RUN], Duration::from_millis(5));
+        let _ = self.run_core_command(&[command::CORE_HALT], NOTIFY_TIMEOUT);
+        let _ = self.run_core_command(&[command::CORE_RUN], NOTIFY_TIMEOUT);
     }
 
     pub fn prepare_for_power_off(&mut self) {
@@ -244,7 +245,7 @@ impl CoreManager {
 
     pub fn exit_core(&mut self) {
         if self.stage == Stage::Running {
-            let _ = self.run_core_command(&[command::CORE_HALT], Duration::from_millis(50));
+            let _ = self.run_core_command(&[command::CORE_HALT], NOTIFY_TIMEOUT);
 
             if let Err(e) = self.persist_files() {
                 log::error!("Error saving: {}", e);
@@ -344,10 +345,7 @@ impl CoreManager {
                 .write_u32(fpga::REG_CTRL_FOCUS, has_focus as u32);
         }
 
-        let _ = self.run_core_command(
-            &[command::NOTIFY_FOCUS, has_focus as u32],
-            Duration::from_millis(5),
-        );
+        let _ = self.run_core_command(&[command::NOTIFY_FOCUS, has_focus as u32], NOTIFY_TIMEOUT);
 
         self.get_core_handler().unwrap().on_focus_changed(has_focus);
     }
@@ -430,7 +428,7 @@ impl CoreManager {
             .map_err(|err| CoreError::Other(err))?;
 
         // Tell the core we're finished setting up.
-        self.run_core_command(&[command::SETUP_COMPLETE], Duration::from_millis(10))?;
+        self.run_core_command(&[command::SETUP_COMPLETE], NOTIFY_TIMEOUT)?;
 
         // Wait for the core to be ready for run.
         self.poll_core_status(command::STATUS_CORE_HALT, SETUP_TIMEOUT)?;
@@ -442,7 +440,7 @@ impl CoreManager {
 
         // Start core.
         let _ = Device::lock().fpga.write_u32(fpga::REG_CTRL_VIBRATE, 1);
-        let _ = self.run_core_command(&[command::CORE_RUN], Duration::from_millis(5));
+        let _ = self.run_core_command(&[command::CORE_RUN], NOTIFY_TIMEOUT);
         self.focus_changed(true);
         Ok(())
     }
@@ -500,6 +498,8 @@ impl CoreManager {
             };
 
             log::info!("Load file {} from {}", info.label, path.display());
+            self.run_core_command(&[command::FILE_WRITE_START, info.id as u32], SETUP_TIMEOUT)?;
+
             let file = File::open(&path);
             self.selected_files[i] = Some(path);
             let mut file = match file {
@@ -574,7 +574,9 @@ impl CoreManager {
                 .map_err(|_| FailedLoadFile(info.label.to_string(), "I/O error".to_string()))?;
 
             let duration = start_time.elapsed();
+            self.run_core_command(&[command::FILE_WRITE_END, info.id as u32], NOTIFY_TIMEOUT)?;
             self.get_core_handler().unwrap().on_after_file_load(info.id);
+
             log::info!(
                 "Loaded {} bytes in {} ms ({}/{}/{} ms read/transfer/handler)",
                 transferred,
@@ -601,6 +603,7 @@ impl CoreManager {
 
             let path = self.selected_files[i].clone().unwrap();
             log::info!("Saving file {} to {}", info.label, path.display());
+            self.run_core_command(&[command::FILE_READ_START, info.id as u32], SETUP_TIMEOUT)?;
             let size = self.get_core_handler().unwrap().get_file_size(info.id);
 
             let mut file = File::create(path)
@@ -633,6 +636,7 @@ impl CoreManager {
                 start_time.elapsed().as_millis() as u32
             );
 
+            self.run_core_command(&[command::FILE_READ_END, info.id as u32], NOTIFY_TIMEOUT)?;
             self.get_core_handler()
                 .unwrap()
                 .on_after_file_save(info.id, &mut file)

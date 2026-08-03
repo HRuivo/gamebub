@@ -217,6 +217,8 @@ class HandheldGameboy extends Module with Core {
         regCoreReset := true.B
       } .elsewhen (command === HostV0.CommandNotifyFocus.U) {
         regCoreFocus := regCommandHost(1)(0)
+      } .elsewhen (command(15, 8) === 0x03.U) {
+        // File command
       } .otherwise {
         // Unknown command
         commandHostState := CommandState.error
