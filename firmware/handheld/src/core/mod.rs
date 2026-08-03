@@ -92,6 +92,8 @@ pub enum CoreError {
     CommandFailed(u32),
     #[error("Timed out waiting for core to be ready")]
     CoreReadyTimeout,
+    #[error("{0}")]
+    Other(String),
 }
 
 /// Core-specific lifecycle callbacks.
@@ -294,7 +296,7 @@ impl CoreManager {
         }
     }
 
-    fn run_core_command(&self, command: &[u32], timeout: Duration) -> Result<(), ()> {
+    fn run_core_command(&self, command: &[u32], timeout: Duration) -> Result<(), CoreError> {
         assert!(command.len() > 0);
         // Write command and arguments
         {
@@ -312,7 +314,7 @@ impl CoreManager {
         let status = loop {
             if start.elapsed() > timeout {
                 log::error!("Command {:08X} timed out", command[0]);
-                return Err(());
+                return Err(CoreError::CommandTimeout(command[0]));
             }
             let mut device = Device::lock();
             let status = device.fpga.read_u32(fpga::REG_CTRL_CMD_HOST).unwrap();
@@ -329,7 +331,7 @@ impl CoreManager {
         if (status & 0b0001) == 0 {
             Ok(())
         } else {
-            Err(())
+            Err(CoreError::CommandFailed(command[0]))
         }
     }
 
@@ -401,50 +403,37 @@ impl CoreManager {
     }
 
     fn finish_loading(&mut self) {
+        if let Err(e) = self.finish_loading_inner() {
+            self.exit_core();
+            ui::send(ui::Message::CoreLoadError(e.to_string()));
+        }
+    }
+
+    fn finish_loading_inner(&mut self) -> Result<(), CoreError> {
         self.load_bitstream();
 
         // Wait for the core to be ready for setup.
-        if let Err(e) = self.poll_core_status(command::STATUS_SETUP, SETUP_TIMEOUT) {
-            self.exit_core();
-            ui::send(ui::Message::CoreLoadError(e.to_string()));
-            return;
-        }
+        self.poll_core_status(command::STATUS_SETUP, SETUP_TIMEOUT)?;
         ui::send(ui::Message::EnterGame);
 
         if self.run_cartridge {
             let mut device = Device::lock();
+            // Power turned off in reset_state.
             device.set_cart_power(true);
         }
 
-        if let Err(e) = self.load_files() {
-            self.exit_core();
-            ui::send(ui::Message::CoreLoadError(e.to_string()));
-            return;
-        }
+        self.load_files()?;
 
-        let result = self.get_core_handler().unwrap().on_before_run();
-        if let Err(err) = result {
-            self.exit_core();
-            ui::send(ui::Message::CoreLoadError(err.to_string()));
-            return;
-        }
+        self.get_core_handler()
+            .unwrap()
+            .on_before_run()
+            .map_err(|err| CoreError::Other(err))?;
 
         // Tell the core we're finished setting up.
-        let result = self.run_core_command(&[command::SETUP_COMPLETE], Duration::from_millis(10));
-        if let Err(()) = result {
-            self.exit_core();
-            ui::send(ui::Message::CoreLoadError(
-                "Core setup command failed".into(),
-            ));
-            return;
-        }
+        self.run_core_command(&[command::SETUP_COMPLETE], Duration::from_millis(10))?;
 
         // Wait for the core to be ready for run.
-        if let Err(e) = self.poll_core_status(command::STATUS_CORE_HALT, SETUP_TIMEOUT) {
-            self.exit_core();
-            ui::send(ui::Message::CoreLoadError(e.to_string()));
-            return;
-        }
+        self.poll_core_status(command::STATUS_CORE_HALT, SETUP_TIMEOUT)?;
         log::info!("Core ready to run");
 
         // Clear loading bar
@@ -455,6 +444,7 @@ impl CoreManager {
         let _ = Device::lock().fpga.write_u32(fpga::REG_CTRL_VIBRATE, 1);
         let _ = self.run_core_command(&[command::CORE_RUN], Duration::from_millis(5));
         self.focus_changed(true);
+        Ok(())
     }
 
     fn load_bitstream(&mut self) {
