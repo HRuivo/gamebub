@@ -14,7 +14,7 @@ MILL_PATH = ROOT_PATH / "mill"
 @dataclass
 class Sim:
     name: str
-    mill_task: str
+    main_class: str
     top_module: str
     files: list[str]
 
@@ -36,7 +36,7 @@ COMMON_FILES: list[str] = [
 SIMS: list[Sim] = [
     Sim(
         name="gameboy",
-        mill_task="GameBub.runSimGameboy",
+        main_class="platform.sim.SimGameboy",
         top_module="SimGameboy",
         files=[
             "sim/gb/cartridge.hpp",
@@ -47,7 +47,7 @@ SIMS: list[Sim] = [
     ),
     Sim(
         name="gba",
-        mill_task="GameBub.runSimGba",
+        main_class="platform.sim.SimGba",
         top_module="SimGba",
         files=[
             "sim/gba/cartridge.hpp",
@@ -73,7 +73,8 @@ def build(
     args = [
         MILL_PATH,
         "-i",
-        sim.mill_task,
+        "GameBub.runMain",
+        sim.main_class,
         f"--target-dir={generate_root}",
     ]
     subprocess.run(args)

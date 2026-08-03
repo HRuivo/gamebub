@@ -16,7 +16,7 @@ MILL_PATH = ROOT_PATH / "mill"
 @dataclass
 class Target:
     name: str
-    mill_task: str
+    main_class: str
     chisel_args: list[str]
     verilog_defines: list[str]
     files: list[str]
@@ -30,7 +30,7 @@ for r in [1, 2, 3, 4]:
     TARGETS.append(
         Target(
             name=f"gamebub_rev{r}",
-            mill_task="GameBub.runHandheld",
+            main_class="platform.handheld.HandheldTop",
             chisel_args=[str(r)],
             verilog_defines=[f"BOARD_REV_{r}"],
             files=[
@@ -111,7 +111,8 @@ def build(
     args = [
         MILL_PATH,
         "-i",
-        target.mill_task,
+        "GameBub.runMain",
+        target.main_class,
         core_class,
         *target.chisel_args,
         f"--target-dir={generate_root}",

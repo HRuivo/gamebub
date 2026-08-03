@@ -10,18 +10,6 @@ object GameBub extends SbtModule {
 
   def moduleDir = super.moduleDir / os.up
 
-  def runHandheld(args: String*) = Task.Command {
-    runMain("platform.handheld.HandheldTop", args*)()
-  }
-
-  def runSimGba(args: String*) = Task.Command {
-    runMain("platform.sim.SimGba", args*)()
-  }
-
-  def runSimGameboy(args: String*) = Task.Command {
-    runMain("platform.sim.SimGameboy", args*)()
-  }
-
   override def scalacOptions = Seq(
     "-language:reflectiveCalls",
     "-deprecation",
