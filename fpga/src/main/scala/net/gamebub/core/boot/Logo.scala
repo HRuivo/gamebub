@@ -99,7 +99,8 @@ class Logo(video: VideoV0) extends Module {
     val colorX = colorOffX + x
     val glowColor = WireDefault(colorTable(0))
     when (colorX >= logoW.U && colorX < (logoW * 2).U) {
-      glowColor := colorTable(colorX - logoW.U)
+      val index = colorX - logoW.U
+      glowColor := colorTable(index(7, 0))
     }
 
     when (index === 2.U) {
