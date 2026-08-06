@@ -14,6 +14,7 @@ import platform.handheld.display.ILI9806E
 import platform.handheld.display.ILI9488
 import platform.handheld.display.ST7262E43
 import platform.handheld.display.DpiSignals
+import net.gamebub.framework.CoreException
 
 object HandheldTop extends App {
   // Parse arguments.
@@ -100,17 +101,10 @@ class HandheldInterrupts extends Bundle {
   val coreVblank = Bool()
 }
 
-object HandheldVibrate extends ChiselEnum {
-  val Off, On, Brake = Value
-}
-
 /**
  * Top-level Chisel module for the Handheld.
  */
 class HandheldTop[T <: Core](coreFactory: () => T, revision: Revision) extends Module {
-  ClocksV0.getClockDisplayHz = revision.getClockDisplayHz
-  val core = Module(coreFactory())
-
   val io = IO(new Bundle {
     /** Clocking **/
     val clockIn50Mhz = Input(Clock())
@@ -165,12 +159,206 @@ class HandheldTop[T <: Core](coreFactory: () => T, revision: Revision) extends M
   })
 
   //////////////////////////////////
-  // Clocking
+  // Core
   //////////////////////////////////
-  io.clockOutLocked := core.io.clocks.locked
-  io.clockOutSys := core.io.clocks.clockOutSystem
-  io.clockOutDpi := core.io.clocks.clockOutDisplay
-  val clockSpi = core.io.clocks.clockOutSpi
+  ClocksV0.getClockDisplayHz = revision.getClockDisplayHz
+  val core = Module(coreFactory())
+
+  // Clocks
+  val (
+    clockSpi: Clock,
+    clockDisplayHz: Int
+  ) = core.io.elements.get("clocks") match {
+    case Some(clocks: ClocksV0) => {
+      clocks.clockIn50M := io.clockIn50Mhz
+      io.clockOutLocked := clocks.locked
+      io.clockOutSys := clocks.clockOutSystem
+      io.clockOutDpi := clocks.clockOutDisplay
+
+      (
+        clocks.clockOutSpi,
+        clocks.clockDisplayHz,
+      )
+    }
+    case Some(x) => throw new CoreException("Unknown 'clocks': " + x.getClass())
+    case None => throw new CoreException("'clocks' is required")
+  }
+
+  // Video
+  val coreVideo = Wire(new Bundle {
+    val dataR = UInt(8.W)
+    val dataG = UInt(8.W)
+    val dataB = UInt(8.W)
+    val dataEnable = Bool()
+    val vblank = Bool()
+    val hblank = Bool()
+  })
+  val (
+    videoWidth: Int,
+    videoHeight: Int,
+    videoFramePeriod: Double,
+    videoColorDepth: Int,
+  ) = core.io.elements.get("video") match {
+    case Some(video: VideoV0) => {
+      coreVideo.dataR := video.data.r
+      coreVideo.dataG := video.data.g
+      coreVideo.dataB := video.data.b
+      coreVideo.dataEnable := video.dataEnable
+      coreVideo.hblank := video.hblank
+      coreVideo.vblank := video.vblank
+      (
+        video.videoWidth,
+        video.videoHeight,
+        video.framePeriod,
+        video.colorDepth,
+      )
+    }
+    case Some(x) => throw new CoreException("Unknown 'video': " + x.getClass())
+    case None => throw new CoreException("'video' is required")
+  }
+
+  // Audio
+  val coreAudioData = Wire(new Bundle {
+    val left = SInt(16.W)
+    val right = SInt(16.W)
+  })
+  core.io.elements.get("audio") match {
+    case Some(audio: AudioV0) => {
+      coreAudioData.left := audio.left
+      coreAudioData.right := audio.right
+    }
+    case Some(x) => throw new CoreException("Unknown 'audio': " + x.getClass())
+    case None => {
+      coreAudioData.left := 0.S
+      coreAudioData.right := 0.S
+    }
+  }
+
+  // Host
+  val coreHost = Wire(new Bundle {
+    val enable = Bool()
+    val reset = Bool()
+  })
+  val coreHostInterface = Wire(new MemoryInterface(addressWidth = 31, dataWidth = 32))
+  val (
+    overlayColorDepth: Color,
+  ) = core.io.elements.get("host") match {
+    case Some(host: HostV0) => {
+      host.enable := coreHost.enable
+      host.reset := coreHost.reset
+      host.mem <> coreHostInterface
+      (
+        host.getOverlayColorDepth,
+      )
+    }
+    case Some(x) => throw new CoreException("Unknown 'host': " + x.getClass())
+    case None => throw new CoreException("'host' is required")
+  }
+
+  // PMOD
+  core.io.elements.get("pmod") match {
+    case Some(pmod: PmodV0) => {
+      io.pmod <> pmod
+    }
+    case Some(x) => throw new CoreException("Unknown 'pmod': " + x.getClass())
+    case None => {
+      io.pmod.dir := 0.U // All inputs
+      io.pmod.out := 0.U
+    }
+  }
+
+  // Input
+  val coreInput = Wire(new InputV0.Buttons)
+  val coreVibrate = Wire(InputV0.Vibrate())
+  core.io.elements.get("input") match {
+    case Some(input: InputV0) => {
+      input.buttons := coreInput
+      coreVibrate := input.vibrate
+    }
+    case Some(x) => throw new CoreException("Unknown 'input': " + x.getClass())
+    case None => {
+      coreVibrate := InputV0.Vibrate.Off
+    }
+  }
+
+  // Cartridge Port
+  core.io.elements.get("cartridge") match {
+    case Some(cartridge: CartridgePortV0) => {
+      io.cartridge <> cartridge
+    }
+    case Some(x) => throw new CoreException("Unknown 'cartridge': " + x.getClass())
+    case None => {
+      io.cartridge.enabled := false.B
+      io.cartridge.bank0Out := DontCare
+      io.cartridge.bank1Out := DontCare
+      io.cartridge.bank2Out := DontCare
+      io.cartridge.bank3Out := DontCare
+      io.cartridge.pin30Out := DontCare
+      io.cartridge.pin31Out := DontCare
+      io.cartridge.bank0Dir := false.B
+      io.cartridge.bank1Dir := false.B
+      io.cartridge.bank2Dir := false.B
+      io.cartridge.bank3Dir := false.B
+      io.cartridge.pin30Dir := false.B
+      io.cartridge.pin31Dir := false.B
+    }
+  }
+
+  // Link Port
+  core.io.elements.get("link") match {
+    case Some(link: LinkPortV0) => {
+      io.link <> link
+    }
+    case Some(x) => throw new CoreException("Unknown 'link': " + x.getClass())
+    case None => {
+      io.link.soOut := false.B
+      io.link.siOut := false.B
+      io.link.sdOut := false.B
+      io.link.scOut := false.B
+      io.link.soDir := false.B
+      io.link.siDir := false.B
+      io.link.sdDir := false.B
+      io.link.scDir := false.B
+    }
+  }
+
+  // SRAM
+  core.io.elements.get("sram") match {
+    case Some(sram: SramV0) => {
+      io.sram <> sram
+    }
+    case Some(x) => throw new CoreException("Unknown 'sram': " + x.getClass())
+    case None => {
+      io.sram.ceN := true.B
+      io.sram.weN := true.B
+      io.sram.oeN := true.B
+      io.sram.writeMaskN := true.B
+      io.sram.address := DontCare
+      io.sram.dataOut := DontCare
+      io.sram.dataDir := false.B
+    }
+  }
+
+  // SDRAM
+  core.io.elements.get("sdram") match {
+    case Some(sdram: SdramV0) => {
+      io.sdram <> sdram
+    }
+    case Some(x) => throw new CoreException("Unknown 'sdram': " + x.getClass())
+    case None => {
+      io.sdram.clock := false.B.asClock
+      io.sdram.cke := false.B
+      io.sdram.cs := true.B
+      io.sdram.ras := true.B
+      io.sdram.cas := true.B
+      io.sdram.we := true.B
+      io.sdram.dqm := DontCare
+      io.sdram.bank := DontCare
+      io.sdram.address := DontCare
+      io.sdram.dataOut := DontCare
+      io.sdram.dataDir := false.B
+    }
+  }
 
   //////////////////////////////////
   // MCU Communication
@@ -254,14 +442,13 @@ class HandheldTop[T <: Core](coreFactory: () => T, revision: Revision) extends M
       0x104 -> RegisterMap.Entry.rw(overlayYControlRegister),
       // Framebuffer dimensions
       0x200 -> RegisterMap.Entry.r(
-        Cat(core.io.video.videoWidth.U(16.W), core.io.video.videoHeight.U(16.W))),
+        Cat(videoWidth.U(16.W), videoHeight.U(16.W))),
       // Stats
       0x300 -> RegisterMap.Entry.r(0.U),
       0x304 -> RegisterMap.Entry.r(0.U),
     )
   )
 
-  val coreHostInterface = Wire(new MemoryInterface(addressWidth = 31, dataWidth = 32))
   val overlayInterface = Wire(new MemoryInterface(addressWidth = 18, dataWidth = 16))
   val framebufferInterface = Wire(new MemoryInterface(addressWidth = 18, dataWidth = 16))
   val colorCorrectInterface = Wire(new MemoryInterface(addressWidth = 9, dataWidth = 16))
@@ -282,7 +469,7 @@ class HandheldTop[T <: Core](coreFactory: () => T, revision: Revision) extends M
       0xC00.U(12.W) -> colorCorrectInterface,
     ))
 
-  controlRegister.coreVblank := core.io.video.vblank
+  controlRegister.coreVblank := coreVideo.vblank
   when (spi.io.debugRequestOverflow) {
     interruptFlags.spiRequestFifoOverflow := true.B
 
@@ -295,12 +482,12 @@ class HandheldTop[T <: Core](coreFactory: () => T, revision: Revision) extends M
   // Interrupts
   //////////////////////////////////
   io.mcuIrq := (interruptFlags.asUInt & interruptEnable.asUInt).orR
-  when (core.io.video.vblank && !RegNext(core.io.video.vblank)) {
+  when (coreVideo.vblank && !RegNext(coreVideo.vblank)) {
     interruptFlags.coreVblank := true.B
   }
 
   //////////////////////////////////
-  // Buttons
+  // Input & Vibrate
   //////////////////////////////////
   {
     // Invert and synchronize buttons
@@ -312,19 +499,20 @@ class HandheldTop[T <: Core](coreFactory: () => T, revision: Revision) extends M
       interruptFlags.buttonEdge := true.B
     }
   }
+  coreInput := (buttonState.asUInt | buttonForceRegister.asUInt).asTypeOf(new InputV0.Buttons)
+
+  val vibrateEnabled = coreHost.enable && controlRegister.vibrate && !displayRegister.docked
+  io.vibrate := RegNext(coreVibrate === InputV0.Vibrate.On && vibrateEnabled)
 
   //////////////////////////////////
   // Video
   //////////////////////////////////
-  val videoWidth = core.io.video.videoWidth
-  val videoHeight = core.io.video.videoHeight
-
   io.hdmiEnable := displayRegister.docked
 
   // Double buffering
   val framebuffers = (0 until 2).map(_ =>
     SRAM(
-      videoWidth * videoHeight, UInt(core.io.video.data.getWidth.W),
+      videoWidth * videoHeight, UInt((videoColorDepth * 3).W),
       readPortClocks = Seq(io.clock_av), writePortClocks = Seq(), readwritePortClocks = Seq(clock)
     )
   )
@@ -334,7 +522,7 @@ class HandheldTop[T <: Core](coreFactory: () => T, revision: Revision) extends M
   val overlayWidth = revision.overlayWidth
   val overlayHeight = revision.overlayHeight
   val overlayFramebuffer = SRAM(
-    overlayWidth * overlayHeight, UInt(core.io.host.overlayColorDepth2.getWidth.W),
+    overlayWidth * overlayHeight, UInt(overlayColorDepth.getWidth.W),
     readPortClocks = Seq(io.clock_av), writePortClocks = Seq(clock), readwritePortClocks = Seq(),
   )
 
@@ -355,9 +543,7 @@ class HandheldTop[T <: Core](coreFactory: () => T, revision: Revision) extends M
     val framebufferReadAddress = Wire(UInt(log2Ceil(videoWidth * videoHeight).W))
     val overlayReadAddress = Wire(UInt(log2Ceil(overlayWidth * overlayHeight).W))
 
-    val audioData = XpmCdcHandshake.continuous(clock, Cat(core.io.audio.left.asUInt, core.io.audio.right.asUInt))
-    val audioDataLeft = audioData(31, 16)
-    val audioDataRight = audioData(15, 0)
+    val audioData = XpmCdcHandshake.continuous(clock, coreAudioData)
 
     // Buffering the read allows this to be a block ram instead of distributed ram
     // and an additional output buffer allows Vivado to improve timing.
@@ -371,7 +557,7 @@ class HandheldTop[T <: Core](coreFactory: () => T, revision: Revision) extends M
     }
     val framebufferRead = MuxLookup(framebufferIndex, 0.U)(
       (0 until 2).map(i => i.U -> RegNext(RegNext(framebuffers(i).readPorts(0).data)))
-    ).asTypeOf(core.io.video.data)
+    ).asTypeOf(ColorARGB(0, videoColorDepth, videoColorDepth, videoColorDepth))
 
     // Color corrections
     val colorCorrector = Module(new ColorCorrection(inputDepth = 5, outputDepth = 6))
@@ -421,7 +607,7 @@ class HandheldTop[T <: Core](coreFactory: () => T, revision: Revision) extends M
     overlayFramebuffer.readPorts(0).enable := true.B
     overlayFramebuffer.readPorts(0).address := overlayReadAddress
     val overlayRead = RegNext(RegNext(overlayFramebuffer.readPorts(0).data))
-      .asTypeOf(core.io.host.overlayColorDepth2)
+      .asTypeOf(overlayColorDepth)
       .convertTo(ColorARGB(1, 8, 8, 8))
 
     val framebufferInBounds = Wire(Bool())
@@ -436,8 +622,8 @@ class HandheldTop[T <: Core](coreFactory: () => T, revision: Revision) extends M
 
     // DPI video signal output
     val (dpiDriver, dpiDriverIo) = revision.displayDriverFactory(
-      /* sourceFramePeriod = */ core.io.video.framePeriod,
-      /* clockHz = */ core.io.clocks.clockDisplayHz,
+      /* sourceFramePeriod = */ videoFramePeriod,
+      /* clockHz = */ clockDisplayHz,
     )
     dpiDriverIo.lastRenderedFrame := lastFrameComplete
     io.lcd := dpiDriverIo.signals
@@ -457,7 +643,7 @@ class HandheldTop[T <: Core](coreFactory: () => T, revision: Revision) extends M
      */
     val hdmiFrameWidth = 858
     val hdmiFrameHeight = 525
-    io.hdmiAudio := VecInit(audioDataLeft, audioDataRight)
+    io.hdmiAudio := VecInit(audioData.left.asUInt, audioData.right.asUInt)
     io.hdmiAudioClock := DontCare
     // Pad to 24-bit RGB.
     io.hdmiRgb := videoOutput.convertTo(ColorARGB(0, 8, 8, 8)).asUInt
@@ -572,7 +758,7 @@ class HandheldTop[T <: Core](coreFactory: () => T, revision: Revision) extends M
   val reset50M = withClock(io.clockIn50Mhz) { XpmCdcSyncRst(reset) }
   withClockAndReset (clock = io.clockIn50Mhz, reset = reset50M) {
     // Synchronize audio data into this domain
-    val syncAudioData = XpmCdcHandshake.continuous(clock, Cat(core.io.audio.left.asUInt, core.io.audio.right.asUInt))
+    val syncAudioData = XpmCdcHandshake.continuous(clock, coreAudioData)
 
     // 16-bit, 2 channel audio output at 48 kHz
     // MCLK = 48 KHz * 256 = 12.288 MHz
@@ -603,7 +789,7 @@ class HandheldTop[T <: Core](coreFactory: () => T, revision: Revision) extends M
         }
       }
       when (sampleCounter.inc()) {
-        regSample := syncAudioData
+        regSample := syncAudioData.asUInt
         regWordClock := true.B
       }
     }
@@ -613,9 +799,6 @@ class HandheldTop[T <: Core](coreFactory: () => T, revision: Revision) extends M
     io.dac.bclk := regBitClock
     io.dac.data := regSample(regSample.getWidth - 1)
   }
-
-//  io.pmod.dir := "b1111".U
-//  core.io.pmod.in := 0.U
 
   // Overlay access.
   // TODO: consider switching to (or adding) a method of writing where
@@ -630,7 +813,7 @@ class HandheldTop[T <: Core](coreFactory: () => T, revision: Revision) extends M
   overlayFramebuffer.writePorts(0).data :=
     overlayInterface.dataWrite
       .asTypeOf(ColorARGB.argb1555())
-      .convertTo(core.io.host.overlayColorDepth2)
+      .convertTo(overlayColorDepth)
       .asUInt
   overlayInterface.done := RegNext(overlayInterface.enable)
 
@@ -660,67 +843,58 @@ class HandheldTop[T <: Core](coreFactory: () => T, revision: Revision) extends M
   //////////////////////////////////
   // Core Connections
   //////////////////////////////////
-  core.io.clocks.clockIn50M := io.clockIn50Mhz
-  core.io.host.enable := controlRegister.coreEnable
-  core.io.host.reset := !controlRegister.coreReset
-  val vibrateEnabled = core.io.host.enable && controlRegister.vibrate && !displayRegister.docked
-  io.vibrate := RegNext(core.io.input.vibrate === HandheldVibrate.On && vibrateEnabled)
-  io.link <> core.io.link
-  io.pmod <> core.io.pmod
-  core.io.host.mem <> coreHostInterface
-  core.io.input.buttons := (buttonState.asUInt | buttonForceRegister.asUInt).asTypeOf(new InputV0.Buttons)
 
   // Framebuffer writes
   {
-    val framebufferX = RegInit(0.U(log2Ceil(core.io.video.videoWidth).W))
-    val framebufferY = RegInit(0.U(log2Ceil(core.io.video.videoHeight).W))
+    val framebufferX = RegInit(0.U(log2Ceil(videoWidth).W))
+    val framebufferY = RegInit(0.U(log2Ceil(videoHeight).W))
     val framebufferWriteIndex = RegInit(0.U(1.W))
 
-    when (core.io.video.dataEnable && !framebufferInterfaceRead) {
+    when (coreVideo.dataEnable && !framebufferInterfaceRead) {
       // Core framebuffer write and SPI framebuffer read share the same read/write port,
       // so ensure that they're not activated at the same time (so they can be inferred correctly).
-      val address = (framebufferY * core.io.video.videoWidth.U(10.W)) + framebufferX
+      val address = (framebufferY * videoWidth.U(10.W)) + framebufferX
+      val data = Wire(ColorARGB(0, videoColorDepth, videoColorDepth, videoColorDepth))
+      data.a := 0.U
+      data.r := coreVideo.dataR
+      data.g := coreVideo.dataG
+      data.b := coreVideo.dataB
       for (i <- 0 until 2) {
         framebuffers(i).readwritePorts(0).enable := (i.U === framebufferWriteIndex)
         framebuffers(i).readwritePorts(0).address := address
         framebuffers(i).readwritePorts(0).isWrite := true.B
-        framebuffers(i).readwritePorts(0).writeData := core.io.video.data.asUInt
+        framebuffers(i).readwritePorts(0).writeData := data.asUInt
       }
     }
 
-    val vblankEdge = core.io.video.vblank && !RegNext(core.io.video.vblank)
-    val hblankEdge = core.io.video.hblank && !RegNext(core.io.video.hblank)
+    val vblankEdge = coreVideo.vblank && !RegNext(coreVideo.vblank)
+    val hblankEdge = coreVideo.hblank && !RegNext(coreVideo.hblank)
     when (vblankEdge) {
       regLastFrameComplete := framebufferWriteIndex
       framebufferWriteIndex := !framebufferWriteIndex
     }
 
-    when (core.io.video.vblank) {
+    when (coreVideo.vblank) {
       // Frame ended
       framebufferX := 0.U
       framebufferY := 0.U
-    } .elsewhen (core.io.video.hblank) {
+    } .elsewhen (coreVideo.hblank) {
       // Line ended
       when (hblankEdge) {
         framebufferX := 0.U
         framebufferY := framebufferY + 1.U
       }
-    } .elsewhen (core.io.video.dataEnable) {
+    } .elsewhen (coreVideo.dataEnable) {
       framebufferX := framebufferX + 1.U
     }
   }
 
-  // N.B. Audio synchronization happens above.
+  // Cartridge voltage control: Rev1 and Rev2 only
+  io.cartridge3V3Enable := RegNext(io.cartridge.enabled && !io.cartridge.switch)
+  io.cartridge5V0Enable := RegNext(io.cartridge.enabled && io.cartridge.switch)
 
-  // Cartridge
-  io.cartridge <> core.io.cartridge
-  // Rev1 and Rev2 only
-  io.cartridge3V3Enable := RegNext(core.io.cartridge.enabled && !io.cartridge.switch)
-  io.cartridge5V0Enable := RegNext(core.io.cartridge.enabled && io.cartridge.switch)
-
-  // Memories
-  io.sram <> core.io.sram
-  io.sdram <> core.io.sdram
+  coreHost.enable := controlRegister.coreEnable
+  coreHost.reset := !controlRegister.coreReset
 }
 
 case class Revision(

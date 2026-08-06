@@ -1,7 +1,6 @@
 package net.gamebub.framework.interface
 
 import chisel3._
-import platform.handheld.HandheldVibrate
 
 object InputV0 {
   class Buttons extends Bundle {
@@ -18,11 +17,15 @@ object InputV0 {
     val start = Bool()
     val select = Bool()
   }
+
+  object Vibrate extends ChiselEnum {
+    val Off, On, Brake = Value
+  }
 }
 
 class InputV0(
 ) extends Bundle {
   val buttons = Input(new InputV0.Buttons())
 
-  val vibrate = Output(HandheldVibrate())
+  val vibrate = Output(InputV0.Vibrate())
 }

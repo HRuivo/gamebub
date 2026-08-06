@@ -19,3 +19,5 @@ abstract class CoreIo extends Bundle {
 trait Core extends Module {
   def io: CoreIo
 }
+
+class CoreException(message: String) extends RuntimeException(message)

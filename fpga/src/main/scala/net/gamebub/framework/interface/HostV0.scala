@@ -15,6 +15,5 @@ class HostV0(
 
     // TODO
 
-    // TODO figure out another way of not exposing overlayColorDepth as IO
-    def overlayColorDepth2: Color = overlayColorDepth
+    def getOverlayColorDepth: Color = overlayColorDepth
 }

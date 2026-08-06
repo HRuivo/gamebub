@@ -326,7 +326,7 @@ class HandheldBoot extends Module with Core {
     }
 
     private def stubUnused(): Unit = {
-        io.input.vibrate := HandheldVibrate.Off
+        io.input.vibrate := InputV0.Vibrate.Off
         io.audio.left := 0.S
         io.audio.right := 0.S
 

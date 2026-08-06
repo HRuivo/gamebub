@@ -202,7 +202,7 @@ class HandheldGba extends Module with Core {
     )
   }
 
-  io.input.vibrate := HandheldVibrate.Off
+  io.input.vibrate := InputV0.Vibrate.Off
 
   // SDRAM interface and port
   private val cache = Module(new HandheldGba.MiniCache(addressWidth = 25, dataWidth = 32))
@@ -232,7 +232,7 @@ class HandheldGba extends Module with Core {
 
   gba.io.configGBPlayer := configRegGBPlayer.asBool
   when (gba.io.configGBPlayer && gba.io.gbpRumble) {
-    io.input.vibrate := HandheldVibrate.On
+    io.input.vibrate := InputV0.Vibrate.On
   }
 
   // Emulated cartridge
@@ -279,7 +279,7 @@ class HandheldGba extends Module with Core {
     doStall := emuCart.io.stall || gba.io.ewramStall
 
     when (emuCart.io.vibrate) {
-      io.input.vibrate := HandheldVibrate.On
+      io.input.vibrate := InputV0.Vibrate.On
     }
 
     // Disconnect physical cartridge
