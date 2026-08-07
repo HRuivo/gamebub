@@ -297,15 +297,23 @@ class HandheldTop[T <: Core](coreFactory: () => T, revision: Revision) extends M
 
   // Input
   val coreInput = Wire(new InputV0.Buttons)
-  val coreVibrate = Wire(InputV0.Vibrate())
   core.getInterface("input") match {
     case Some(input: InputV0) => {
       input.buttons := coreInput
-      coreVibrate := input.vibrate
     }
     case Some(x) => throw new CoreException("Unknown 'input': " + x.getClass())
+    case None => {}
+  }
+  
+  // Vibrate
+  val coreVibrate = Wire(VibrateV0.Mode())
+  core.getInterface("vibrate") match {
+    case Some(vibrate: VibrateV0) => {
+      coreVibrate := vibrate.mode
+    }
+    case Some(x) => throw new CoreException("Unknown 'vibrate': " + x.getClass())
     case None => {
-      coreVibrate := InputV0.Vibrate.Off
+      coreVibrate := VibrateV0.Mode.Off
     }
   }
 
@@ -522,7 +530,7 @@ class HandheldTop[T <: Core](coreFactory: () => T, revision: Revision) extends M
   coreInput := buttonFilter.io.output
 
   val vibrateEnabled = controlCoreFocus && controlVibrate.enable && !controlDock.docked
-  io.vibrate := RegNext(coreVibrate === InputV0.Vibrate.On && vibrateEnabled)
+  io.vibrate := RegNext(coreVibrate === VibrateV0.Mode.On && vibrateEnabled)
 
   //////////////////////////////////
   // Video

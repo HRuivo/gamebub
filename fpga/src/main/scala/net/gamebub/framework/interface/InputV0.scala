@@ -17,15 +17,9 @@ object InputV0 {
     val start = Bool()
     val select = Bool()
   }
-
-  object Vibrate extends ChiselEnum {
-    val Off, On, Brake = Value
-  }
 }
 
 class InputV0(
 ) extends Bundle {
   val buttons = Input(new InputV0.Buttons())
-
-  val vibrate = Output(InputV0.Vibrate())
 }
