@@ -24,6 +24,10 @@ impl UiState {
         let root = self.root.unwrap();
         let backend = root.global::<Backend>();
 
+        backend.on_core_list_fetch(move || {
+            worker::send(worker::Message::FetchCoreList);
+        });
+
         let state_ = state.clone();
         backend.on_core_run(move |core_id| {
             let mut state = state_.borrow_mut();
@@ -55,6 +59,21 @@ impl UiState {
 
     pub fn cores_handle_run(&mut self, core_id: SharedString) {
         worker::send(worker::Message::RunCore(core_id.to_string()));
+    }
+
+    pub fn cores_list(&mut self, list: Vec<crate::core::CoreListEntry>) {
+        let list = ModelRc::from(Rc::new(VecModel::from(
+            list.into_iter()
+                .map(|item| crate::ui::slint::CoreListEntry {
+                    core_id: item.id.into(),
+                    core_name: item.name.into(),
+                    core_author: item.author.into(),
+                })
+                .collect::<Vec<_>>(),
+        )));
+        let root = self.root.unwrap();
+        let backend = root.global::<Backend>();
+        backend.set_core_list(list);
     }
 
     pub fn cores_file_select_begin(&mut self, label: String, path: PathBuf) {

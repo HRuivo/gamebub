@@ -2,6 +2,12 @@ use std::path::PathBuf;
 
 use crate::device::drivers::fpga;
 
+pub struct CoreListEntry {
+    pub id: String,
+    pub name: String,
+    pub author: String,
+}
+
 #[allow(unused)]
 pub struct CoreInfo {
     pub id: &'static str,

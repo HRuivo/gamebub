@@ -19,8 +19,10 @@ use crate::{
     },
     ui,
 };
+pub use info::CoreListEntry;
 use info::{CoreFile, CoreInfo};
 use settings::CoreSettings;
+
 
 mod info;
 mod settings;
@@ -59,6 +61,7 @@ pub const CORE_POLL_INTERVAL: Duration = Duration::from_millis(5);
 
 pub struct CoreManager {
     stage: Stage,
+    listed_cores: bool,
     core_info: Option<&'static info::CoreInfo>,
     core_handler: CoreHandlerImpl,
     core_settings: Option<CoreSettings>,
@@ -147,6 +150,7 @@ impl CoreManager {
     fn new() -> Self {
         CoreManager {
             core_info: None,
+            listed_cores: false,
             stage: Stage::Idle,
             core_handler: CoreHandlerImpl::None,
             core_settings: None,
@@ -157,6 +161,29 @@ impl CoreManager {
 
     pub fn lock() -> MutexGuard<'static, Self> {
         CORE_MANAGER.lock().unwrap()
+    }
+
+    /// Find and list all cores (UI)
+    pub fn list_cores(&mut self) {
+        if self.listed_cores {
+            // Already sent the list to the UI, ignore duplicate request.
+            return;
+        }
+
+        // TODO: dynamically list
+        let list = vec![
+            CoreListEntry {
+                id: "Game-Bub.GB".into(),
+                name: "Game Boy / Game Boy Color".into(),
+                author: "Game Bub".into(),
+            },
+            CoreListEntry {
+                id: "Game-Bub.GBA".into(),
+                name: "Game Boy Advance".into(),
+                author: "Game Bub".into(),
+            },
+        ];
+        ui::send(ui::Message::CoreList(list));
     }
 
     fn get_core_handler(&mut self) -> Option<&mut dyn CoreHandler> {

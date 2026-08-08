@@ -1,9 +1,9 @@
 import { ListViewBase } from "../../components/list_view.slint";
 import { ControlHint } from "../../components/control_hint.slint";
-import { CoreListInfo } from "types.slint";
+import { CoreListEntry } from "types.slint";
 
 component CoreListItem inherits HorizontalLayout {
-    in property <CoreListInfo> core;
+    in property <CoreListEntry> core;
     padding: 2px;
 
     Text {
@@ -26,16 +26,37 @@ component CoreListItem inherits HorizontalLayout {
 
 
 export component CoreList {
-    in property <[CoreListInfo]> cores;
+    in property <[CoreListEntry]> cores;
+    in property <bool> is-loading: cores.length == 0;
 
     callback on-cancel();
     callback on-core-selected(/* selected-item */ int);
 
     forward-focus: i-list;
 
+    // Loading box
+    if is-loading: Rectangle {
+        background: #FFF;
+        border-color: black;
+        border-width: 1px;
+        width: i-layout.min-width;
+        height: i-layout.min-height;
+
+        i-layout := VerticalLayout {
+            padding: 8px;
+            spacing: 4px;
+            Text {
+                horizontal-alignment: center;
+                text: "Loading...";
+            }
+        }
+    }
+
     i-focus-scope := FocusScope {
         key-pressed(event) => {
-            if (event.text == "b") {
+            if (is-loading) {
+                reject
+            } else if (event.text == "b") {
                 on-cancel();
                 accept
             } else {

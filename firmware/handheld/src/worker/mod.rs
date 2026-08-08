@@ -32,6 +32,8 @@ pub enum Message {
     /// The idle timer has expired
     IdleTimerExpired,
 
+    /// Fetch the list of cores
+    FetchCoreList,
     /// Start running a core (ID)
     RunCore(String),
     /// Exit the current core (or cancel loading)
@@ -132,6 +134,7 @@ fn dispatch(message: Message) {
             }
             // TODO: Dim the screen temporarily.
         }
+        Message::FetchCoreList => CoreManager::lock().list_cores(),
         Message::RunCore(id) => CoreManager::lock().run_core(&id, false),
         Message::ExitCore => CoreManager::lock().exit_core(),
         Message::CoreFileSelected(file) => CoreManager::lock().handle_file_selected(file),

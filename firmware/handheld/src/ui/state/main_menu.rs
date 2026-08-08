@@ -1,7 +1,7 @@
 use std::{cell::RefCell, rc::Rc};
 
 use super::super::slint::Backend;
-use slint::{ComponentHandle, SharedString};
+use slint::ComponentHandle;
 
 use crate::{device::Device, worker};
 
@@ -9,22 +9,10 @@ use super::UiState;
 
 impl UiState {
     /// Set up the "Main Menu" screen.
-    pub(super) fn setup_main_menu(&mut self, state: &Rc<RefCell<UiState>>, _device: &mut Device) {
+    pub(super) fn setup_main_menu(&mut self, _state: &Rc<RefCell<UiState>>, _device: &mut Device) {
         let root = self.root.unwrap();
         let backend = root.global::<Backend>();
 
         backend.on_main_menu_run_cartridge(|| worker::send(worker::Message::RunCartridge));
-
-        let state_ = state.clone();
-        backend.on_main_menu_cores(move || {
-            let state = state_.borrow_mut();
-            let root = state.root.unwrap();
-            let backend = root.global::<Backend>();
-
-            // TODO list cores
-
-            backend.set_core_file_select_list(slint::ModelRc::default());
-            backend.set_core_file_select_label(SharedString::new());
-        });
     }
 }
