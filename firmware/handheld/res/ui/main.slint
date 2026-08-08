@@ -1,7 +1,6 @@
 import { StatusBar } from "components/status_bar.slint";
 import { TextListView } from "components/list_view.slint";
 import { VolumeBar } from "components/volume_bar.slint";
-import { RomSelectScreen } from "screens/rom_select.slint";
 import { MainMenuScreen } from "screens/main_menu.slint";
 import { GameScreen } from "screens/game.slint";
 import { SettingsScreen } from "screens/settings/settings.slint";
@@ -68,14 +67,6 @@ export component MainWindow inherits Window {
                     }
                 }
                 if (Global.current-screen == ScreenId.MainMenu): MainMenuScreen {
-                    init => {
-                        Global.ui-status-bar = true;
-                        self.focus();
-                        root.screen-title = self.title;
-                    }
-                }
-
-                if (Global.current-screen == ScreenId.RomSelect): RomSelectScreen {
                     init => {
                         Global.ui-status-bar = true;
                         self.focus();

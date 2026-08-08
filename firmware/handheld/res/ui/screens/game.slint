@@ -52,7 +52,7 @@ export component GameScreen inherits ScreenBase {
             }
         }
 
-        if Backend.rom-select-is-loading:  Rectangle {
+        if Backend.core-is-loading:  Rectangle {
             background: #FFF;
             border-color: black;
             border-width: 1px;
@@ -69,7 +69,7 @@ export component GameScreen inherits ScreenBase {
 
                 Rectangle {
                     background: black;
-                    width: Backend.rom-select-progress * i-text.min-width;
+                    width: Backend.core-progress * i-text.min-width;
                     height: 2px;
                 }
             }

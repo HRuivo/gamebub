@@ -99,7 +99,7 @@ impl UiState {
             // the FileListView component can't handle shifting view to
             // a newly selected element until the first time it renders.
             let root = self.root.clone();
-            self.rom_select_timer.start(
+            self.core_file_select_timer.start(
                 slint::TimerMode::SingleShot,
                 Duration::from_millis(1),
                 move || {

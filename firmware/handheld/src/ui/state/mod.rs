@@ -1,10 +1,4 @@
-use std::{
-    cell::RefCell,
-    collections::VecDeque,
-    path::{Path, PathBuf},
-    rc::Rc,
-    time::Duration,
-};
+use std::{cell::RefCell, collections::VecDeque, path::PathBuf, rc::Rc, time::Duration};
 
 use slint::{ComponentHandle, Global, Timer, TimerMode, Weak};
 
@@ -19,7 +13,6 @@ mod cores;
 mod game;
 mod main_menu;
 pub mod notifications;
-mod rom_select;
 mod settings;
 mod setup;
 mod tools;
@@ -31,30 +24,21 @@ pub struct UiState {
     notification_queue: VecDeque<notifications::Notification>,
     notification_active: bool,
 
-    rom_select_directory: PathBuf,
-    rom_select_timer: Timer,
     settings: settings::SettingsState,
     core_file_select_directory: PathBuf,
+    core_file_select_timer: Timer,
 }
 
 impl UiState {
     pub fn new(root: &MainWindow, device: &mut Device) -> Rc<RefCell<Self>> {
-        let rom_select_directory = kvs::keys::LAST_ROM_PATH
-            .get()
-            .map(|mut p| {
-                p.pop();
-                p
-            })
-            .unwrap_or_else(|| Path::new(rom_select::BASE_DIR).to_path_buf());
         let state: UiState = UiState {
             root: root.as_weak(),
             notification_timer: Timer::default(),
             notification_queue: VecDeque::new(),
             notification_active: false,
-            rom_select_directory,
-            rom_select_timer: Timer::default(),
             settings: settings::SettingsState::default(),
             core_file_select_directory: PathBuf::new(),
+            core_file_select_timer: Timer::default(),
         };
         let state = Rc::new(RefCell::new(state));
         state.borrow_mut().setup(state.clone(), device);
@@ -85,7 +69,6 @@ impl UiState {
         self.setup_main_menu(&state, device);
         self.setup_game(&state, device);
         self.setup_tools(&state, device);
-        self.setup_rom_select(&state, device);
         self.setup_settings(&state, device);
         self.setup_cores(&state, device);
 

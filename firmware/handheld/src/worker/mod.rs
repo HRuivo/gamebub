@@ -1,6 +1,6 @@
 //! Worker threads to do background blocking work.
 
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 use std::sync::{mpsc, OnceLock};
 
 use crate::core::CoreManager;
@@ -29,10 +29,6 @@ pub enum Message {
 
     /// Run a cartridge
     RunCartridge,
-    /// Run a ROM file
-    RunRomFile(#[allow(unused)] PathBuf),
-    /// Load ROM select entries
-    ListRoms(PathBuf),
     /// The idle timer has expired
     IdleTimerExpired,
 
@@ -107,23 +103,6 @@ fn dispatch(message: Message) {
 
             CoreManager::lock().run_core(core_id, true);
         }
-        Message::RunRomFile(_) => {
-            // TODO: remove
-        }
-        Message::ListRoms(path) => {
-            let files = match rom_select_get_files(&path) {
-                Ok(files) => files,
-                Err(e) => {
-                    log::warn!("Error listing directory: {:?}", e);
-                    ui::send(ui::Message::RomSelectError(format!(
-                        "Error listing directory:\n{}",
-                        e,
-                    )));
-                    Vec::new()
-                }
-            };
-            ui::send(ui::Message::RomSelectFiles(files))
-        }
         Message::DockBegin {
             serial, firmware, ..
         } => {
@@ -163,33 +142,4 @@ fn dispatch(message: Message) {
             log::warn!("Unhandled message: {:?}", message);
         }
     }
-}
-
-/// Get the list of eligible files for the ROM select menu at the given directory
-fn rom_select_get_files(path: &Path) -> std::io::Result<Vec<(String, bool)>> {
-    let mut files = path
-        .read_dir()?
-        .filter_map(|e| {
-            let e = e.ok()?;
-            let name = e.file_name();
-            let name = name.to_str()?;
-            let kind = e.metadata().ok()?.file_type();
-            if name.starts_with(".") {
-                return None;
-            }
-            let extensions = &[".gb", ".gbc", ".gba"];
-            if kind.is_file() && !extensions.iter().any(|&ext| name.ends_with(ext)) {
-                return None;
-            }
-            Some((name.to_string(), kind))
-        })
-        .collect::<Vec<_>>();
-    files.sort_unstable_by(|f1, f2| {
-        // Sort by name, with directories first.
-        let c1 = (f1.1.is_file(), f1.0.as_str());
-        let c2 = (f2.1.is_file(), f2.0.as_str());
-        c1.cmp(&c2)
-    });
-    let files = files.into_iter().map(|f| (f.0, f.1.is_dir())).collect();
-    Ok(files)
 }

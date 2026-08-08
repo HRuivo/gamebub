@@ -12,7 +12,6 @@ import { CoreSubscreen } from "screens/cores/types.slint";
 export enum ScreenId {
     Setup,
     MainMenu,
-    RomSelect,
     Game,
     Settings,
     Tools,
@@ -76,13 +75,6 @@ export global Backend {
     in property <bool> notification-visible: false;
     in property <string> notification-text: "I am a notification!";
 
-    in-out property <int> rom-select-index: 0;
-    in property <[FileListEntry]> rom-select-list: [];
-    in property <string> rom-select-path: "/fake/path/";
-    in property <percent> rom-select-progress: 0%;
-    in property <bool> rom-select-is-loading: false;
-    in-out property <string> rom-select-error;
-
     in property <[SettingEntry]> settings: [
         {
             name: "list",
@@ -111,6 +103,8 @@ export global Backend {
     in-out property <int> core-file-select-index: 0;
     in-out property <int> core-selected-index: 0;
     in-out property <string> core-error;
+    in property <percent> core-progress: 0%;
+    in property <bool> core-is-loading: false;
 
     callback volume-changed(int);
     callback brightness-changed(int);
@@ -119,11 +113,7 @@ export global Backend {
 
     callback setup-complete();
     callback main-menu-run-cartridge();
-    callback main-menu-load-rom();
     callback main-menu-cores();
-    callback rom-select-selected(int) -> bool;
-    callback rom-select-focused(int);
-    callback rom-select-up() -> bool;
     callback game-set-focused(bool);
     callback game-reset();
     callback game-exit();

@@ -502,7 +502,7 @@ impl CoreManager {
                 // Update UI progress bar.
                 if last_progress_update.elapsed() > PROGRESS_UPDATE_INTERVAL {
                     let progress = (overall_transferred as f32) / (overall_total as f32);
-                    ui::send(ui::Message::RomLoadingProgress(progress));
+                    ui::send(ui::Message::CoreLoadProgress(progress));
                     last_progress_update = Instant::now();
                 }
             });

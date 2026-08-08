@@ -1,5 +1,3 @@
-use std::path::PathBuf;
-
 use super::KvsKey;
 
 /// Setup / OOBE stage
@@ -7,9 +5,6 @@ pub static SETUP_STAGE: KvsKey<u32> = KvsKey::new_with_default("setup-stage", 0)
 
 /// Total uptime, in seconds.
 pub static UPTIME: KvsKey<u32> = KvsKey::new_with_default("uptime", 0);
-
-/// The full path of the last selected ROM.
-pub static LAST_ROM_PATH: KvsKey<PathBuf> = KvsKey::new("last-rom-path");
 
 /// The last volume level.
 pub static VOLUME: KvsKey<u8> = KvsKey::new_with_default("volume", 128);
@@ -50,7 +45,6 @@ pub static LAST_FIRMWARE_VERSION: KvsKey<String> = KvsKey::new("last-fw-version"
 pub fn flush_all() {
     SETUP_STAGE.flush();
     UPTIME.flush();
-    LAST_ROM_PATH.flush();
     VOLUME.flush();
     BRIGHTNESS.flush();
     DARK_MODE.flush();

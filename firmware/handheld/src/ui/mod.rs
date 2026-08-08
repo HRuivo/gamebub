@@ -46,12 +46,6 @@ pub enum Message {
     Redraw,
     /// Go to the "Game" screen
     EnterGame,
-    /// ROM loading progress
-    RomLoadingProgress(f32),
-    /// ROM select file list
-    RomSelectFiles(Vec<(String, bool)>),
-    /// ROM select error
-    RomSelectError(String),
     /// Enter the error screen, and show the given error
     FatalError(String),
     /// Internal input state changed
@@ -78,6 +72,8 @@ pub enum Message {
     CoreFileSelectError(String),
     /// Core load error
     CoreLoadError(String),
+    /// Core loading progress
+    CoreLoadProgress(f32),
 }
 
 /// Send a message to the UI thread.
@@ -271,23 +267,16 @@ impl UI {
             Message::EnterGame => {
                 self.root
                     .global::<slint::Backend>()
-                    .set_rom_select_is_loading(false);
+                    .set_core_is_loading(false);
                 self.root.invoke_set_screen(slint::ScreenId::Game);
             }
-            Message::RomLoadingProgress(progress) => {
+            Message::CoreLoadProgress(progress) => {
                 self.root
                     .global::<slint::Backend>()
-                    .set_rom_select_is_loading(true);
+                    .set_core_is_loading(true);
                 self.root
                     .global::<slint::Backend>()
-                    .set_rom_select_progress(progress * 100.0);
-            }
-            Message::RomSelectFiles(files) => {
-                self.state.borrow_mut().rom_select_update_list(files);
-            }
-            Message::RomSelectError(error) => {
-                self.state.borrow_mut().rom_select_set_error(error);
-                self.root.invoke_set_screen(slint::ScreenId::RomSelect);
+                    .set_core_progress(progress * 100.0);
             }
             Message::FatalError(error) => {
                 self.root

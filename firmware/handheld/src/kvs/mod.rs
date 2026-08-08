@@ -56,6 +56,7 @@ pub struct KvsKey<T> {
 }
 
 impl<T: Serialize + DeserializeOwned + Clone> KvsKey<T> {
+    #[allow(unused)]
     const fn new(name: &'static str) -> Self {
         assert!(name.len() < 16);
         KvsKey::<T> {
