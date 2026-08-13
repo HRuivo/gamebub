@@ -23,7 +23,6 @@ pub use info::CoreListEntry;
 use info::{CoreFile, CoreInfo};
 use settings::CoreSettings;
 
-
 mod info;
 mod settings;
 
@@ -170,19 +169,7 @@ impl CoreManager {
             return;
         }
 
-        // TODO: dynamically list
-        let list = vec![
-            CoreListEntry {
-                id: "Game-Bub.GB".into(),
-                name: "Game Boy / Game Boy Color".into(),
-                author: "Game Bub".into(),
-            },
-            CoreListEntry {
-                id: "Game-Bub.GBA".into(),
-                name: "Game Boy Advance".into(),
-                author: "Game Bub".into(),
-            },
-        ];
+        let list = info::list_cores();
         ui::send(ui::Message::CoreList(list));
     }
 

@@ -1,7 +1,11 @@
-use std::path::PathBuf;
+use serde::Deserialize;
+use std::{fs::File, io::BufReader, path::PathBuf};
 
 use crate::device::drivers::fpga;
 
+pub const DIR_CORES: &str = "/sdcard/cores/";
+
+#[derive(Deserialize)]
 pub struct CoreListEntry {
     pub id: String,
     pub name: String,
@@ -207,4 +211,69 @@ static CORES: &[CoreInfo] = &[
 
 pub fn get_core_info(id: &str) -> Option<&'static CoreInfo> {
     CORES.iter().find(|x| x.id == id)
+}
+
+/// Get a list of all available cores.
+pub fn list_cores() -> Vec<CoreListEntry> {
+    // Start with built-in cores.
+    let mut cores = vec![
+        CoreListEntry {
+            id: "Game-Bub.GB".into(),
+            name: "Game Boy / Game Boy Color".into(),
+            author: "Game Bub".into(),
+        },
+        CoreListEntry {
+            id: "Game-Bub.GBA".into(),
+            name: "Game Boy Advance".into(),
+            author: "Game Bub".into(),
+        },
+    ];
+
+    // Iterate over possible core directories.
+    if let Ok(entries) = std::fs::read_dir(DIR_CORES) {
+        for entry in entries {
+            let entry = match entry {
+                Ok(entry) => entry,
+                Err(_) => {
+                    log::warn!("Failed to list core file");
+                    continue;
+                }
+            };
+
+            // Skip non-directories
+            if entry.file_type().map(|t| t.is_dir()).unwrap_or(false) {
+                continue;
+            }
+
+            let mut path = entry.path();
+            path.push("core.json");
+
+            let file = match File::open(&path) {
+                Ok(file) => file,
+                Err(_) => {
+                    log::warn!("Failed to open core file");
+                    continue;
+                }
+            };
+
+            /// Helper struct to extract only high-level info from core
+            #[derive(Deserialize)]
+            struct MinimalCoreInfo {
+                metadata: CoreListEntry,
+            }
+
+            let reader = BufReader::with_capacity(256, file);
+            match serde_json::from_reader::<_, MinimalCoreInfo>(reader) {
+                Ok(info) => cores.push(info.metadata),
+                Err(e) => {
+                    let filename = path.file_name().unwrap_or_default();
+                    log::warn!("Error parsing core file {filename:?}: {e:?}");
+                    continue;
+                }
+            };
+        }
+    }
+
+    cores.sort_by(|a, b| a.name.cmp(&b.name));
+    cores
 }
