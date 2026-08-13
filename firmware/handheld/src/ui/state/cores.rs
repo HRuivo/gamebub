@@ -65,9 +65,9 @@ impl UiState {
         let list = ModelRc::from(Rc::new(VecModel::from(
             list.into_iter()
                 .map(|item| crate::ui::slint::CoreListEntry {
-                    core_id: item.id.into(),
-                    core_name: item.name.into(),
-                    core_author: item.author.into(),
+                    core_id: item.id.as_str().into(),
+                    core_name: item.name.as_str().into(),
+                    core_author: item.author.as_str().into(),
                 })
                 .collect::<Vec<_>>(),
         )));

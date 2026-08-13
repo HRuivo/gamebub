@@ -1,3 +1,4 @@
+use arrayvec::ArrayString;
 use serde::Deserialize;
 use std::{fs::File, io::BufReader, path::PathBuf};
 
@@ -7,9 +8,9 @@ pub const DIR_CORES: &str = "/sdcard/cores/";
 
 #[derive(Deserialize)]
 pub struct CoreListEntry {
-    pub id: String,
-    pub name: String,
-    pub author: String,
+    pub id: ArrayString<32>,
+    pub name: ArrayString<32>,
+    pub author: ArrayString<32>,
 }
 
 #[allow(unused)]
@@ -218,14 +219,14 @@ pub fn list_cores() -> Vec<CoreListEntry> {
     // Start with built-in cores.
     let mut cores = vec![
         CoreListEntry {
-            id: "Game-Bub.GB".into(),
-            name: "Game Boy / Game Boy Color".into(),
-            author: "Game Bub".into(),
+            id: "Game-Bub.GB".try_into().unwrap(),
+            name: "Game Boy / Game Boy Color".try_into().unwrap(),
+            author: "Game Bub".try_into().unwrap(),
         },
         CoreListEntry {
-            id: "Game-Bub.GBA".into(),
-            name: "Game Boy Advance".into(),
-            author: "Game Bub".into(),
+            id: "Game-Bub.GBA".try_into().unwrap(),
+            name: "Game Boy Advance".try_into().unwrap(),
+            author: "Game Bub".try_into().unwrap(),
         },
     ];
 
