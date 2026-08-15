@@ -19,8 +19,9 @@ use crate::{
     },
     ui,
 };
+pub use info::CoreFile;
+pub use info::CoreInfo;
 pub use info::CoreListEntry;
-use info::{CoreFile, CoreInfo};
 use settings::CoreSettings;
 
 mod info;
@@ -61,7 +62,7 @@ pub const CORE_POLL_INTERVAL: Duration = Duration::from_millis(5);
 pub struct CoreManager {
     stage: Stage,
     listed_cores: bool,
-    core_info: Option<&'static info::CoreInfo>,
+    core_info: Option<info::CoreInfo>,
     core_handler: CoreHandlerImpl,
     core_settings: Option<CoreSettings>,
     selected_files: Vec<Option<PathBuf>>,
@@ -104,9 +105,6 @@ pub enum CoreError {
 /// The main purpose is to add core-specific customizations for built-in cores
 /// while generic core functionality is being built.
 pub trait CoreHandler {
-    /// Returns the path to the bitstream.
-    fn get_bitstream_path(&self) -> PathBuf;
-
     /// Called after the bitstream is programmed.
     fn on_after_program(&mut self);
 
@@ -142,6 +140,16 @@ enum CoreHandlerImpl {
     Gba(crate::bitstream::gba::Gba),
 }
 
+impl CoreHandlerImpl {
+    fn get_mut(&mut self) -> Option<&mut dyn CoreHandler> {
+        match self {
+            CoreHandlerImpl::None => None,
+            CoreHandlerImpl::Gameboy(gameboy) => Some(gameboy),
+            CoreHandlerImpl::Gba(gba) => Some(gba),
+        }
+    }
+}
+
 /// # CoreManager
 ///
 /// Manages the lifecycle of cores.
@@ -173,25 +181,24 @@ impl CoreManager {
         ui::send(ui::Message::CoreList(list));
     }
 
-    fn get_core_handler(&mut self) -> Option<&mut dyn CoreHandler> {
-        match &mut self.core_handler {
-            CoreHandlerImpl::None => None,
-            CoreHandlerImpl::Gameboy(gameboy) => Some(gameboy),
-            CoreHandlerImpl::Gba(gba) => Some(gba),
-        }
-    }
-
     /// Start the process of running a specific core (by ID).
     pub fn run_core(&mut self, id: &str, run_cartridge: bool) {
         log::info!("Run core={id} cart={run_cartridge}");
         assert!(self.core_info.is_none());
         assert!(self.stage == Stage::Idle);
-        self.core_info = info::get_core_info(id);
-        let Some(core) = self.core_info else {
-            log::error!("Core not found: '{id}'");
-            return;
+        let core = match info::get_core(id) {
+            Ok(core) => {
+                self.core_info = Some(core);
+                self.core_info.as_ref().unwrap()
+            }
+            Err(e) => {
+                // TODO show error to user?
+                log::error!("Error loading core '{id}': {e}");
+                return;
+            }
         };
-        self.core_handler = match self.core_info.unwrap().id {
+
+        self.core_handler = match core.id.as_str() {
             "Game-Bub.GB" => CoreHandlerImpl::Gameboy(crate::bitstream::gameboy::Gameboy::new()),
             "Game-Bub.GBA" => CoreHandlerImpl::Gba(crate::bitstream::gba::Gba::new()),
             _ => CoreHandlerImpl::None,
@@ -236,7 +243,7 @@ impl CoreManager {
     /// Temporary transitional method
     /// TODO: remove
     pub fn current_bitstream(&mut self) -> Option<&mut dyn bitstream::Bitstream> {
-        self.get_core_handler().map(|c| c.as_legacy_bitstream())
+        self.core_handler.get_mut().map(|c| c.as_legacy_bitstream())
     }
 
     /// Legacy method, should be core-specific (setting?)
@@ -361,11 +368,14 @@ impl CoreManager {
 
         let _ = self.run_core_command(&[command::NOTIFY_FOCUS, has_focus as u32], NOTIFY_TIMEOUT);
 
-        self.get_core_handler().unwrap().on_focus_changed(has_focus);
+        self.core_handler
+            .get_mut()
+            .unwrap()
+            .on_focus_changed(has_focus);
     }
 
     fn next_file_select(&mut self) {
-        let core = self.core_info.unwrap();
+        let core = self.core_info.as_ref().unwrap();
         let index = loop {
             // Find the index of the next file to load.
             let index = match self.stage {
@@ -436,7 +446,8 @@ impl CoreManager {
 
         self.load_files()?;
 
-        self.get_core_handler()
+        self.core_handler
+            .get_mut()
             .unwrap()
             .on_before_run()
             .map_err(|err| CoreError::Other(err))?;
@@ -462,9 +473,8 @@ impl CoreManager {
     fn load_bitstream(&mut self) {
         assert!(self.stage == Stage::LoadBitstream);
 
-        let bitstream_path = self.get_core_handler().unwrap().get_bitstream_path();
-        bitstream::program_fpga(&bitstream_path);
-        self.get_core_handler().unwrap().on_after_program();
+        bitstream::program_fpga(&self.core_info.as_ref().unwrap().bitstream);
+        self.core_handler.get_mut().unwrap().on_after_program();
     }
 
     fn load_files(&mut self) -> Result<(), CoreError> {
@@ -475,7 +485,7 @@ impl CoreManager {
 
         let mut scratch = crate::bitstream::SCRATCH.take().expect("scratch buffer");
 
-        let core = self.core_info.unwrap();
+        let core = self.core_info.as_ref().unwrap();
         let file_0_index = core.files.iter().position(|f| f.id == 0);
         for (i, info) in core.files.iter().enumerate() {
             if self.run_cartridge && (info.id == 0 || info.dependent_on_0) {
@@ -499,7 +509,8 @@ impl CoreManager {
 
             // Possibly override the path
             path = path.or(self
-                .get_core_handler()
+                .core_handler
+                .get_mut()
                 .unwrap()
                 .get_file_path_override(info.id));
 
@@ -532,7 +543,8 @@ impl CoreManager {
                 }
             };
 
-            self.get_core_handler()
+            self.core_handler
+                .get_mut()
                 .unwrap()
                 .on_before_file_load(info.id, &mut file)
                 .map_err(|e| FailedLoadFile(info.label.to_string(), e))?;
@@ -572,7 +584,8 @@ impl CoreManager {
                 transfer_duration += transfer_start.elapsed();
 
                 let handler_start = Instant::now();
-                self.get_core_handler()
+                self.core_handler
+                    .get_mut()
                     .unwrap()
                     .on_during_file_load(info.id, chunk);
                 handler_duration += handler_start.elapsed();
@@ -589,7 +602,10 @@ impl CoreManager {
 
             let duration = start_time.elapsed();
             self.run_core_command(&[command::FILE_WRITE_END, info.id as u32], NOTIFY_TIMEOUT)?;
-            self.get_core_handler().unwrap().on_after_file_load(info.id);
+            self.core_handler
+                .get_mut()
+                .unwrap()
+                .on_after_file_load(info.id);
 
             log::info!(
                 "Loaded {} bytes in {} ms ({}/{}/{} ms read/transfer/handler)",
@@ -606,7 +622,7 @@ impl CoreManager {
 
     fn persist_files(&mut self) -> Result<(), CoreError> {
         assert!(self.stage == Stage::Running);
-        let core = self.core_info.unwrap();
+        let core = self.core_info.as_ref().unwrap();
         for (i, info) in core.files.iter().enumerate() {
             if info.read_only {
                 continue;
@@ -618,7 +634,7 @@ impl CoreManager {
             let path = self.selected_files[i].clone().unwrap();
             log::info!("Saving file {} to {}", info.label, path.display());
             self.run_core_command(&[command::FILE_READ_START, info.id as u32], SETUP_TIMEOUT)?;
-            let size = self.get_core_handler().unwrap().get_file_size(info.id);
+            let size = self.core_handler.get_mut().unwrap().get_file_size(info.id);
 
             let mut file = File::create(path)
                 .map_err(|_| FailedSaveFile(info.label.to_string(), "Open failed".to_string()))?;
@@ -651,7 +667,8 @@ impl CoreManager {
             );
 
             self.run_core_command(&[command::FILE_READ_END, info.id as u32], NOTIFY_TIMEOUT)?;
-            self.get_core_handler()
+            self.core_handler
+                .get_mut()
                 .unwrap()
                 .on_after_file_save(info.id, &mut file)
                 .map_err(|e| FailedSaveFile(info.label.to_string(), e))?;
@@ -662,7 +679,7 @@ impl CoreManager {
     /// Called to persist core settings to the core settings JSON file
     pub fn persist_settings(&mut self) -> Result<(), std::io::Error> {
         assert!(self.stage == Stage::Running);
-        let core = self.core_info.unwrap();
+        let core = self.core_info.as_ref().unwrap();
         let settings = self.core_settings.as_ref().unwrap();
 
         if !std::fs::exists(DIR_SETTINGS)? {
@@ -726,7 +743,7 @@ impl CoreManager {
             Stage::LoadSelectFile(i) => i,
             _ => panic!(),
         };
-        let extensions = self.core_info.unwrap().files[file_index].extensions;
+        let extensions = &self.core_info.as_ref().unwrap().files[file_index].extensions;
 
         let mut files = path
             .read_dir()?
@@ -738,7 +755,7 @@ impl CoreManager {
                 if name.starts_with(".") {
                     return None;
                 }
-                if kind.is_file() && !extensions.iter().any(|&e| name.ends_with(e)) {
+                if kind.is_file() && !extensions.iter().any(|&e| name.ends_with(e.as_str())) {
                     return None;
                 }
                 Some((name.to_string(), kind))

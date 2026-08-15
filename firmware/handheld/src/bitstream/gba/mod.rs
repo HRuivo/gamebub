@@ -10,7 +10,7 @@ use rtc::RtcState;
 use thiserror::Error;
 
 use crate::{
-    core::CoreHandler,
+    core::{CoreFile, CoreHandler, CoreInfo},
     device::{drivers::fpga, Device},
     kvs,
 };
@@ -208,6 +208,73 @@ impl Gba {
 
         Ok(())
     }
+
+    pub fn get_core_info() -> CoreInfo {
+        CoreInfo {
+            id: "Game-Bub.GBA".try_into().unwrap(),
+            name: "Game Boy Advance".try_into().unwrap(),
+            author: "Game Bub".try_into().unwrap(),
+            files: [
+                CoreFile {
+                    id: 0,
+                    label: "ROM".try_into().unwrap(),
+                    extensions: [".gba".try_into().unwrap()].into_iter().collect(),
+                    filename: None,
+
+                    optional: true,
+                    read_only: true,
+                    user_selected: true,
+                    dependent_on_0: false,
+                    initialize: false,
+
+                    address: 0x3000_0000, // SDRAM
+                    max_size: 32 * 1024 * 1024,
+                    exact_size: 0,
+                    max_transfer_speed: 20_000, // 20 MB/s
+                    transfer_word_size: fpga::FpgaSpiWordSize::Bits32,
+                },
+                CoreFile {
+                    id: 1,
+                    label: "Save".try_into().unwrap(),
+                    extensions: [".sav".try_into().unwrap()].into_iter().collect(),
+                    filename: None,
+
+                    optional: true,
+                    read_only: false,
+                    user_selected: false,
+                    dependent_on_0: true,
+                    initialize: true,
+
+                    address: 0x4000_0000, // SRAM
+                    max_size: 128 * 1024 + 16,
+                    exact_size: 0,
+                    max_transfer_speed: 10_000, // 10 MB/s
+                    transfer_word_size: fpga::FpgaSpiWordSize::Bits16,
+                },
+                CoreFile {
+                    id: 2,
+                    label: "BIOS".try_into().unwrap(),
+                    extensions: [".bin".try_into().unwrap()].into_iter().collect(),
+                    filename: None, // TODO
+
+                    optional: false,
+                    read_only: true,
+                    user_selected: false,
+                    dependent_on_0: false,
+                    initialize: false,
+
+                    address: 0x1000_0000,
+                    max_size: 0,
+                    exact_size: 16 * 1024,
+                    max_transfer_speed: 20_000, // 20 MB/s
+                    transfer_word_size: fpga::FpgaSpiWordSize::Bits32,
+                },
+            ]
+            .into_iter()
+            .collect(),
+            bitstream: crate::util::get_system_file_path("gba.bit.hs"),
+        }
+    }
 }
 
 impl Bitstream for Gba {
@@ -242,10 +309,6 @@ impl Bitstream for Gba {
 }
 
 impl CoreHandler for Gba {
-    fn get_bitstream_path(&self) -> PathBuf {
-        crate::util::get_system_file_path("gba.bit.hs")
-    }
-
     fn as_legacy_bitstream(&mut self) -> &mut dyn super::Bitstream {
         self
     }

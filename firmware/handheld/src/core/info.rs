@@ -1,4 +1,4 @@
-use arrayvec::ArrayString;
+use arrayvec::{ArrayString, ArrayVec};
 use serde::Deserialize;
 use std::{fs::File, io::BufReader, path::PathBuf};
 
@@ -15,20 +15,22 @@ pub struct CoreListEntry {
 
 #[allow(unused)]
 pub struct CoreInfo {
-    pub id: &'static str,
-    pub name: &'static str,
-    pub author: &'static str,
-    pub files: &'static [CoreFile],
+    pub id: ArrayString<32>,
+    pub name: ArrayString<32>,
+    pub author: ArrayString<32>,
+    pub files: ArrayVec<CoreFile, 8>,
+    pub bitstream: PathBuf,
 }
 
 #[allow(unused)]
 pub struct CoreFile {
     pub id: u16,
-    pub label: &'static str,
-    pub extensions: &'static [&'static str],
-
+    pub label: ArrayString<16>,
     /// If set, the file will be loaded from this path relative to the asset path.
-    pub asset_path: Option<&'static str>,
+    pub filename: Option<ArrayString<32>>,
+
+    /// List of file extensions (optional).
+    pub extensions: ArrayVec<ArrayString<8>, 4>,
 
     /// If true, the core will still run if the file is not loaded.
     pub optional: bool,
@@ -43,12 +45,14 @@ pub struct CoreFile {
     /// If true, if the file is not loaded, the region will still be initialized with 0xFFs.
     pub initialize: bool,
 
-    // TODO: maybe broad types based on how the user accesses them?
     /// The address to load the file to.
+    /// TODO: support hex-string
     pub address: u32,
     /// Maximum size of the file.
+    /// TODO: support hex-string
     pub max_size: u32,
     /// Exact size of the file.
+    /// TODO: support hex-string
     pub exact_size: u32,
     /// Maximum read/write speed when loading/saving the file (in KB/s)
     pub max_transfer_speed: u32,
@@ -65,153 +69,6 @@ impl CoreInfo {
         p.add_extension("json");
         p
     }
-}
-
-static CORES: &[CoreInfo] = &[
-    CoreInfo {
-        id: "Game-Bub.GB",
-        name: "Game Boy / Game Boy Color",
-        author: "Game Bub",
-        files: &[
-            CoreFile {
-                id: 0,
-                label: "ROM",
-                extensions: &[".gb", ".gbc"],
-                asset_path: None,
-
-                optional: true,
-                read_only: true,
-                user_selected: true,
-                dependent_on_0: false,
-                initialize: false,
-
-                address: 0x3000_0000, // SDRAM
-                max_size: 8 * 1024 * 1024,
-                exact_size: 0,
-                max_transfer_speed: 10_000, // 10 MB/s
-                transfer_word_size: fpga::FpgaSpiWordSize::Bits32,
-            },
-            CoreFile {
-                id: 1,
-                label: "Save",
-                extensions: &[".sav"],
-                asset_path: None,
-
-                optional: true,
-                read_only: false,
-                user_selected: false,
-                dependent_on_0: true,
-                initialize: true,
-
-                address: 0x4000_0000, // SRAM
-                max_size: 128 * 1024 + 48,
-                exact_size: 0,
-                max_transfer_speed: 5_000, // 5 MB/s
-                transfer_word_size: fpga::FpgaSpiWordSize::Bits16,
-            },
-            CoreFile {
-                id: 2,
-                label: "BIOS CGB",
-                extensions: &[".bin"],
-                asset_path: None, // TODO
-
-                optional: false,
-                read_only: true,
-                user_selected: false,
-                dependent_on_0: false,
-                initialize: false,
-
-                address: 0x1000_0000 + 256,
-                max_size: 0,
-                exact_size: 2048 + 256,
-                max_transfer_speed: 5_000, // 5 MB/s
-                transfer_word_size: fpga::FpgaSpiWordSize::Bits8,
-            },
-            CoreFile {
-                id: 3,
-                label: "BIOS DMG",
-                extensions: &[".bin"],
-                asset_path: None, // TODO
-
-                optional: false,
-                read_only: true,
-                user_selected: false,
-                dependent_on_0: false,
-                initialize: false,
-
-                address: 0x1000_0000,
-                max_size: 0,
-                exact_size: 256,
-                max_transfer_speed: 5_000, // 5 MB/s
-                transfer_word_size: fpga::FpgaSpiWordSize::Bits8,
-            },
-        ],
-    },
-    CoreInfo {
-        id: "Game-Bub.GBA",
-        name: "Game Boy Advance",
-        author: "Game Bub",
-        files: &[
-            CoreFile {
-                id: 0,
-                label: "ROM",
-                extensions: &[".gba"],
-                asset_path: None,
-
-                optional: true,
-                read_only: true,
-                user_selected: true,
-                dependent_on_0: false,
-                initialize: false,
-
-                address: 0x3000_0000, // SDRAM
-                max_size: 32 * 1024 * 1024,
-                exact_size: 0,
-                max_transfer_speed: 20_000, // 20 MB/s
-                transfer_word_size: fpga::FpgaSpiWordSize::Bits32,
-            },
-            CoreFile {
-                id: 1,
-                label: "Save",
-                extensions: &[".sav"],
-                asset_path: None,
-
-                optional: true,
-                read_only: false,
-                user_selected: false,
-                dependent_on_0: true,
-                initialize: true,
-
-                address: 0x4000_0000, // SRAM
-                max_size: 128 * 1024 + 16,
-                exact_size: 0,
-                max_transfer_speed: 10_000, // 10 MB/s
-                transfer_word_size: fpga::FpgaSpiWordSize::Bits16,
-            },
-            CoreFile {
-                id: 2,
-                label: "BIOS",
-                extensions: &[".bin"],
-                asset_path: None, // TODO
-
-                optional: false,
-                read_only: true,
-                user_selected: false,
-                dependent_on_0: false,
-                initialize: false,
-
-                address: 0x1000_0000,
-                max_size: 0,
-                exact_size: 16 * 1024,
-                max_transfer_speed: 20_000, // 20 MB/s
-                transfer_word_size: fpga::FpgaSpiWordSize::Bits32,
-            },
-        ],
-    },
-];
-
-pub fn get_core_info(id: &str) -> Option<&'static CoreInfo> {
-    CORES.iter().find(|x| x.id == id)
 }
 
 /// Get a list of all available cores.
@@ -277,4 +134,77 @@ pub fn list_cores() -> Vec<CoreListEntry> {
 
     cores.sort_by(|a, b| a.name.cmp(&b.name));
     cores
+}
+
+/// Get full information for a core.
+/// TODO: better error type?
+pub fn get_core(id: &str) -> Result<CoreInfo, String> {
+    // Handle built-in cores.
+    match id {
+        "Game-Bub.GB" => return Ok(crate::bitstream::gameboy::Gameboy::get_core_info()),
+        "Game-Bub.GBA" => return Ok(crate::bitstream::gba::Gba::get_core_info()),
+        _ => {}
+    }
+
+    #[derive(Deserialize)]
+    struct JsonCoreMetadata {
+        pub id: ArrayString<32>,
+        pub name: ArrayString<32>,
+        pub author: ArrayString<32>,
+    }
+
+    #[derive(Deserialize)]
+    struct JsonCoreBitstream {
+        pub target: ArrayString<16>,
+        pub filename: ArrayString<32>,
+    }
+
+    #[derive(Deserialize)]
+    struct JsonCoreInfo {
+        metadata: JsonCoreMetadata,
+        bitstreams: Vec<JsonCoreBitstream>,
+    }
+
+    let mut core_dir = PathBuf::from(DIR_CORES);
+    core_dir.push(id);
+
+    // Read core.json
+    let file = File::open(&core_dir.join("core.json")).map_err(|_| "Failed to open core.json")?;
+    let reader = BufReader::with_capacity(256, file);
+    let json_core: JsonCoreInfo =
+        serde_json::from_reader(reader).map_err(|e| format!("Failed to parse core.json: {e}"))?;
+
+    // Find the right bitstream (TODO: use a visitor that extracts the right one).
+    let bitstream = json_core
+        .bitstreams
+        .iter()
+        .find_map(|b| {
+            if b.target.as_str() == get_device_target() {
+                Some(b.filename)
+            } else {
+                None
+            }
+        })
+        .ok_or("No compatible bitstream")?;
+
+    Ok(CoreInfo {
+        id: json_core.metadata.id,
+        name: json_core.metadata.name,
+        author: json_core.metadata.author,
+        files: ArrayVec::new(), // TODO
+        bitstream: core_dir.join(bitstream),
+    })
+}
+
+fn get_device_target() -> &'static str {
+    #[cfg(feature = "rev1")]
+    const TARGET: &'static str = "gamebub_rev1";
+    #[cfg(feature = "rev2")]
+    const TARGET: &'static str = "gamebub_rev2";
+    #[cfg(feature = "rev3")]
+    const TARGET: &'static str = "gamebub_rev3";
+    #[cfg(feature = "rev4")]
+    const TARGET: &'static str = "gamebub_rev4";
+
+    TARGET
 }
