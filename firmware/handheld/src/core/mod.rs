@@ -368,10 +368,9 @@ impl CoreManager {
 
         let _ = self.run_core_command(&[command::NOTIFY_FOCUS, has_focus as u32], NOTIFY_TIMEOUT);
 
-        self.core_handler
-            .get_mut()
-            .unwrap()
-            .on_focus_changed(has_focus);
+        if let Some(core_handler) = self.core_handler.get_mut() {
+            core_handler.on_focus_changed(has_focus);
+        }
     }
 
     fn next_file_select(&mut self) {
@@ -446,11 +445,11 @@ impl CoreManager {
 
         self.load_files()?;
 
-        self.core_handler
-            .get_mut()
-            .unwrap()
-            .on_before_run()
-            .map_err(|err| CoreError::Other(err))?;
+        if let Some(core_handler) = self.core_handler.get_mut() {
+            core_handler
+                .on_before_run()
+                .map_err(|err| CoreError::Other(err))?;
+        }
 
         // Tell the core we're finished setting up.
         self.run_core_command(&[command::SETUP_COMPLETE], NOTIFY_TIMEOUT)?;
@@ -474,7 +473,9 @@ impl CoreManager {
         assert!(self.stage == Stage::LoadBitstream);
 
         bitstream::program_fpga(&self.core_info.as_ref().unwrap().bitstream);
-        self.core_handler.get_mut().unwrap().on_after_program();
+        if let Some(core_handler) = self.core_handler.get_mut() {
+            core_handler.on_after_program();
+        }
     }
 
     fn load_files(&mut self) -> Result<(), CoreError> {
@@ -508,11 +509,9 @@ impl CoreManager {
             }
 
             // Possibly override the path
-            path = path.or(self
-                .core_handler
-                .get_mut()
-                .unwrap()
-                .get_file_path_override(info.id));
+            if let Some(core_handler) = self.core_handler.get_mut() {
+                path = path.or(core_handler.get_file_path_override(info.id));
+            }
 
             let path = match path {
                 Some(path) => path,
@@ -543,11 +542,11 @@ impl CoreManager {
                 }
             };
 
-            self.core_handler
-                .get_mut()
-                .unwrap()
-                .on_before_file_load(info.id, &mut file)
-                .map_err(|e| FailedLoadFile(info.label.to_string(), e))?;
+            if let Some(core_handler) = self.core_handler.get_mut() {
+                core_handler
+                    .on_before_file_load(info.id, &mut file)
+                    .map_err(|e| FailedLoadFile(info.label.to_string(), e))?;
+            }
             let file_size = file.metadata().unwrap().len();
             overall_total += file_size;
 
@@ -584,10 +583,10 @@ impl CoreManager {
                 transfer_duration += transfer_start.elapsed();
 
                 let handler_start = Instant::now();
-                self.core_handler
-                    .get_mut()
-                    .unwrap()
-                    .on_during_file_load(info.id, chunk);
+
+                if let Some(core_handler) = self.core_handler.get_mut() {
+                    core_handler.on_during_file_load(info.id, chunk);
+                }
                 handler_duration += handler_start.elapsed();
 
                 // Update UI progress bar.
@@ -602,10 +601,9 @@ impl CoreManager {
 
             let duration = start_time.elapsed();
             self.run_core_command(&[command::FILE_WRITE_END, info.id as u32], NOTIFY_TIMEOUT)?;
-            self.core_handler
-                .get_mut()
-                .unwrap()
-                .on_after_file_load(info.id);
+            if let Some(core_handler) = self.core_handler.get_mut() {
+                core_handler.on_after_file_load(info.id);
+            }
 
             log::info!(
                 "Loaded {} bytes in {} ms ({}/{}/{} ms read/transfer/handler)",
@@ -634,6 +632,7 @@ impl CoreManager {
             let path = self.selected_files[i].clone().unwrap();
             log::info!("Saving file {} to {}", info.label, path.display());
             self.run_core_command(&[command::FILE_READ_START, info.id as u32], SETUP_TIMEOUT)?;
+            // TODO: read size from FPGA
             let size = self.core_handler.get_mut().unwrap().get_file_size(info.id);
 
             let mut file = File::create(path)
@@ -667,11 +666,11 @@ impl CoreManager {
             );
 
             self.run_core_command(&[command::FILE_READ_END, info.id as u32], NOTIFY_TIMEOUT)?;
-            self.core_handler
-                .get_mut()
-                .unwrap()
-                .on_after_file_save(info.id, &mut file)
-                .map_err(|e| FailedSaveFile(info.label.to_string(), e))?;
+            if let Some(core_handler) = self.core_handler.get_mut() {
+                core_handler
+                    .on_after_file_save(info.id, &mut file)
+                    .map_err(|e| FailedSaveFile(info.label.to_string(), e))?;
+            }
         }
         Ok(())
     }
