@@ -9,6 +9,7 @@ import xilinx.{XpmCdcHandshake, XpmCdcSingle, XpmCdcSyncRst}
 import net.gamebub.framework.interface._
 import lib.util.FractionalDivider
 import platform.handheld.display.DisplayDriverIO
+import platform.handheld.display.ILI9806E
 
 object HandheldTop extends App {
   // Parse arguments.
@@ -40,7 +41,7 @@ object HandheldTop extends App {
         displayHeight = 320,
         displayRotate = true,
         displayColorDepth = 6,
-        displayDriverFactory = (sourceFramePeriod) => {
+        displayDriverFactory = (sourceFramePeriod, _) => {
           val config = AdaptiveDpiDriver.Config(
             clockHz = 12_288_000,
             hActive = 320,
@@ -66,7 +67,7 @@ object HandheldTop extends App {
         displayWidth = 800,
         displayHeight = 480,
         displayColorDepth = 6,
-        displayDriverFactory = (sourceFramePeriod) => {
+        displayDriverFactory = (sourceFramePeriod, _) => {
           val config = AdaptiveDpiDriver.Config(
             clockHz = 26_100_000,
             hActive = 800,
@@ -92,24 +93,14 @@ object HandheldTop extends App {
         displayRotate = true,
         displayOffsetX = -28,
         displayColorDepth = 8,
-        displayDriverFactory = (sourceFramePeriod) => {
-          val config = AdaptiveDpiDriver.Config(
-            clockHz = 29_362_000,
-            hActive = 480,
-            vActive = 800,
-            variableVsync = true,
-            hSyncMin = 4,
-            hBackPorchMin = 10,
-            hFrontPorchMin = 47,
-            vSyncMin = 4,
-            vBackPorchMin = 20,
-            vFrontPorchMin = 10,
-            vFrontPorchMax = 255,
-          )
-          val driver = Module(new AdaptiveDpiDriver(config, sourceFramePeriod))
+        displayDriverFactory = (sourceFramePeriod, clockHz) => {
+          val driver = Module(new ILI9806E(
+            clockHz,
+            sourceFramePeriod,
+          ))
           (driver, driver.io)
         },
-        getClockDisplayHz = (_) => (29_361_000, 29_362_000),
+        getClockDisplayHz = ILI9806E.getClockDisplayHz,
         overlayWidth = 360,
         overlayHeight = 240,
       )
@@ -483,6 +474,7 @@ class HandheldTop[T <: Module with HandheldModule](moduleFactory: () => T, revis
     // DPI video signal output
     val (dpiDriver, dpiDriverIo) = revision.displayDriverFactory(
       /* sourceFramePeriod = */ module.io.video.framePeriod,
+      /* clockHz = */ module.io.clocks.clockDisplayHz,
     )
     dpiDriverIo.lastRenderedFrame := lastFrameComplete
     io.lcd := dpiDriverIo.signals
@@ -774,7 +766,7 @@ case class Revision(
   displayRotate: Boolean = false,
   displayOffsetX: Int = 0,
   displayColorDepth: Int,
-  displayDriverFactory: (Double) => (Module, DisplayDriverIO),
+  displayDriverFactory: (Double, Int) => (Module, DisplayDriverIO),
   /// A function that returns the clockDisplay clock min Hz and max Hz by frame period
   getClockDisplayHz: (Double) => (Int, Int),
   overlayWidth: Int,
