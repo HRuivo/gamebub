@@ -179,7 +179,7 @@ pub fn get_core(id: &str) -> Result<CoreInfo, String> {
         .bitstreams
         .iter()
         .find_map(|b| {
-            if b.target.as_str() == get_device_target() {
+            if b.target.as_str() == get_device_target() && b.filename.ends_with(".bit") {
                 Some(b.filename)
             } else {
                 None
