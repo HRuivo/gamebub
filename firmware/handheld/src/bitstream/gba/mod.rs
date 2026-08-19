@@ -38,6 +38,7 @@ const REG_RTC_LO: u32 = 0x0000_0200;
 const REG_RTC_HI: u32 = 0x0000_0204;
 const REG_STAT_STALLS: u32 = 0x0000_1000;
 const REG_STAT_CYCLES: u32 = 0x0000_1004;
+const COLOR_CORRECTION_BASE: u32 = 0x5000_0000;
 
 const FILE_ROM: u16 = 0;
 const FILE_SAVE: u16 = 1;
@@ -208,7 +209,7 @@ impl Gba {
             let setting = kvs::keys::GBA_COLOR_PROFILE.get().unwrap() as usize;
             corrections.get(setting).unwrap_or(&&IDENTITY)
         };
-        correction.configure(device)?;
+        correction.configure(device, COLOR_CORRECTION_BASE)?;
 
         Ok(())
     }

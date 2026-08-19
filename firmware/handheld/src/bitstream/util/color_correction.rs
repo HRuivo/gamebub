@@ -107,7 +107,7 @@ pub mod presets {
 }
 
 impl ColorCorrection {
-    pub fn configure(&self, device: &mut Device) -> Result<(), fpga::Error> {
+    pub fn configure(&self, device: &mut Device, base: u32) -> Result<(), fpga::Error> {
         // Enable corrections
         device
             .fpga
@@ -145,7 +145,6 @@ impl ColorCorrection {
 
         let writes: [(u32, &[u16]); 3] =
             [(0, &matrix), (0x080, &input_table), (0x100, &output_table)];
-        let base: u32 = fpga::REG_COLOR_CORRECT_PARAMS;
         for (register, data) in writes {
             let data: &[u8] =
                 unsafe { std::slice::from_raw_parts(data.as_ptr().cast(), data.len() * 2) };

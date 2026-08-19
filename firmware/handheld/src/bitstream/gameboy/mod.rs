@@ -37,6 +37,7 @@ const REG_DMG_PALETTE_OFF: u32 = 0x0000_0030;
 const REG_STAT_STALLS: u32 = 0x0000_1000;
 const REG_STAT_CYCLES: u32 = 0x0000_1004;
 const DMG_PALETTE_BASE: u32 = 0x2000_0000;
+const COLOR_CORRECTION_BASE: u32 = 0x5000_0000;
 
 const FILE_ROM: u16 = 0;
 const FILE_SAVE: u16 = 1;
@@ -102,7 +103,7 @@ impl Gameboy {
                 corrections.get(setting).unwrap_or(&&IDENTITY)
             }
         };
-        correction.configure(device)?;
+        correction.configure(device, COLOR_CORRECTION_BASE)?;
 
         // DMG palettes
         if is_dmg {

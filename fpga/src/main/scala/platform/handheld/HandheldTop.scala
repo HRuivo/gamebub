@@ -3,8 +3,8 @@ package platform.handheld
 import chisel3._
 import chisel3.util._
 import _root_.circt.stage.ChiselStage
-import lib.mem.{HandshakeMemoryCdc, MemoryInterface, MemoryMap, RegisterMap}
-import lib.video.{Color, ColorARGB, ColorCorrection}
+import lib.mem.{MemoryInterface, MemoryMap, RegisterMap}
+import lib.video.{Color, ColorARGB}
 import xilinx.{XpmCdcHandshake, XpmCdcSingle, XpmCdcSyncRst}
 import net.gamebub.framework.interface._
 import net.gamebub.framework.Core
@@ -222,6 +222,27 @@ class HandheldTop[T <: Core](coreFactory: () => T, revision: Revision) extends M
     case None => throw new CoreException("'video' is required")
   }
 
+  // Video filter
+  val videoFilterIn = Wire(ColorARGB(0, videoColorDepth, videoColorDepth, videoColorDepth))
+  val videoFilterOut = Wire(ColorARGB(0, 8, 8, 8))
+  val videoFilterReset = Wire(Reset())
+  val (
+    videoFilterLatency: Int,
+  ) = core.getInterface("videoFilter")  match {
+    case Some(videoFilter: VideoFilterBasicV0) => {
+      videoFilter.clock := io.clock_av
+      videoFilter.reset := videoFilterReset
+      videoFilter.dataIn := videoFilterIn
+      videoFilterOut := videoFilter.dataOut
+      videoFilter.latency
+    }
+    case Some(x) => throw new CoreException("Unknown 'videoFilter': " + x.getClass())
+    case None => {
+      videoFilterOut := videoFilterIn.convertTo(videoFilterOut)
+      0
+    }
+  }
+
   // Audio
   val coreAudioData = Wire(new Bundle {
     val left = SInt(16.W)
@@ -391,7 +412,6 @@ class HandheldTop[T <: Core](coreFactory: () => T, revision: Revision) extends M
     val docked = Bool()
   }))
   val controlCoreRun = RegInit(false.B)
-  val controlColorCorrection = RegInit(false.B)
 
   /// Synchronized physical button state (without MCU force override)
   val buttonState = Wire(new InputV0.Buttons)
@@ -433,13 +453,11 @@ class HandheldTop[T <: Core](coreFactory: () => T, revision: Revision) extends M
 
       // Temporary
       0xF000 -> RegisterMap.Entry.w(controlCoreRun),
-      0xF004 -> RegisterMap.Entry.w(controlColorCorrection),
     )
   )
 
   val overlayInterface = Wire(new MemoryInterface(addressWidth = 18, dataWidth = 16))
   val framebufferInterface = Wire(new MemoryInterface(addressWidth = 18, dataWidth = 16))
-  val colorCorrectInterface = Wire(new MemoryInterface(addressWidth = 9, dataWidth = 16))
   // 16 bit prefix: 64 KiB
   // 12 bit prefix: 1 MiB
   // 8 bit prefix: 16 MiB
@@ -454,7 +472,6 @@ class HandheldTop[T <: Core](coreFactory: () => T, revision: Revision) extends M
       0x80.U(8.W) -> registerMap,
       0x81.U(8.W) -> overlayInterface,
       0x82.U(8.W) -> framebufferInterface,
-      0xC00.U(12.W) -> colorCorrectInterface,
     ))
 
   when (spi.io.debugRequestOverflow) {
@@ -550,46 +567,10 @@ class HandheldTop[T <: Core](coreFactory: () => T, revision: Revision) extends M
       (0 until 2).map(i => i.U -> RegNext(RegNext(framebuffers(i).readPorts(0).data)))
     ).asTypeOf(ColorARGB(0, videoColorDepth, videoColorDepth, videoColorDepth))
 
-    // Color corrections
-    val colorCorrector = Module(new ColorCorrection(inputDepth = 5, outputDepth = 6))
-    colorCorrector.io.enable := XpmCdcSingle(clock, controlColorCorrection)
-    colorCorrector.io.in := framebufferRead
-    val framebufferColor = colorCorrector.io.out
-
-    {
-      val cdc = Module(new HandshakeMemoryCdc(addressWidth = 9, dataWidth = 16))
-      cdc.io.sourceClock := clock
-      cdc.io.sourceReset := reset
-      cdc.io.initiator <> colorCorrectInterface
-      val mem = cdc.io.target
-      mem.done := true.B
-      mem.dataRead := DontCare
-      val matrix = RegInit(VecInit(Seq(1, 0, 0, 0, 1, 0, 0, 0, 1).map(x => (x << 10).S(12.W))))
-      val inputTable = RegInit(VecInit((0 until 32).map(i => {
-        val normal = i.toDouble / 31.0
-        (normal * 1024).floor.min(1023).toInt.S(11.W)
-      })))
-      val outputTable = RegInit(VecInit((0 until 64).map(i => {
-        val normal = i.toDouble / 63.0
-        (normal * 64).floor.min(63).toInt.U(6.W)
-      })))
-      when (mem.enable && mem.write) {
-        when (mem.address(8, 7) === 0.U) {
-          matrix(mem.address(4, 1)) := mem.dataWrite.asSInt
-        }
-        when (mem.address(8, 7) === 1.U) {
-          inputTable(mem.address(5, 1)) := mem.dataWrite.asSInt
-        }
-        when (mem.address(8, 7) === 2.U) {
-          outputTable(mem.address(6, 1)) := mem.dataWrite
-        }
-      }
-      colorCorrector.io.matrixR := VecInit(matrix(0), matrix(1), matrix(2))
-      colorCorrector.io.matrixG := VecInit(matrix(3), matrix(4), matrix(5))
-      colorCorrector.io.matrixB := VecInit(matrix(6), matrix(7), matrix(8))
-      colorCorrector.io.inputTable := inputTable
-      colorCorrector.io.outputTable := outputTable
-    }
+    // Apply core video filter
+    videoFilterIn := framebufferRead
+    val framebufferColor = videoFilterOut
+    videoFilterReset := reset_av
 
     // Similar for overlay framebuffer.
     overlayFramebuffer.readPorts(0).enable := true.B
@@ -674,7 +655,7 @@ class HandheldTop[T <: Core](coreFactory: () => T, revision: Revision) extends M
       val videoScale = (screenWidth / videoWidth).min(screenHeight / videoHeight)
       val videoOffsetX = (screenWidth - (videoWidth * videoScale)) / 2
       val videoOffsetY = (screenHeight - (videoHeight * videoScale)) / 2
-      val framebufferReadDelay = 3 /* reading */ + 3 /* color corrections */
+      val framebufferReadDelay = 3 /* reading */ + videoFilterLatency
       framebufferReadAddress :=
         (((videoY - videoOffsetY.U) / videoScale.U) * videoWidth.U) +
           ((videoX - videoOffsetX.U + framebufferReadDelay.U) / videoScale.U)
@@ -718,7 +699,7 @@ class HandheldTop[T <: Core](coreFactory: () => T, revision: Revision) extends M
       val videoScale = (screenWidth / videoWidth).min(screenHeight / videoHeight)
       val videoOffsetX = (screenWidth - (videoWidth * videoScale)) / 2 + revision.displayOffsetX
       val videoOffsetY = (screenHeight - (videoHeight * videoScale)) / 2
-      val framebufferReadDelay = 3 /* reading */ + 3 /* color corrections */
+      val framebufferReadDelay = 3 /* reading */ + videoFilterLatency
       val framebufferReadDelayX = if (revision.displayRotate) 0 else framebufferReadDelay
       val framebufferReadDelayY = if (revision.displayRotate) framebufferReadDelay else 0
       framebufferReadAddress :=

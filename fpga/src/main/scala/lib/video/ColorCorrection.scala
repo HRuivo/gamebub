@@ -2,6 +2,9 @@ package lib.video
 
 import chisel3._
 import lib.log.Logger
+import lib.mem.HandshakeMemoryCdc
+import net.gamebub.framework.interface.VideoFilterBasicV0
+import lib.mem.MemoryInterface
 
 /**
  * Color correction matrix calculator
@@ -85,5 +88,56 @@ class ColorCorrection(
       output := max
     }
     output
+  }
+}
+
+object ColorCorrection {
+  def setup(
+    clock: Clock,
+    reset: Reset,
+    videoFilter: VideoFilterBasicV0,
+    memInterface: MemoryInterface,
+  ): Unit = {
+    withClockAndReset (videoFilter.clock, videoFilter.reset) {
+      val colorCorrector = Module(new ColorCorrection(inputDepth = 5, outputDepth = 6))
+      colorCorrector.io.enable := true.B
+      colorCorrector.io.in := videoFilter.dataIn
+      videoFilter.dataOut := colorCorrector.io.out.convertTo(videoFilter.dataOut)
+
+      {
+        val cdc = Module(new HandshakeMemoryCdc(addressWidth = 9, dataWidth = 16))
+        cdc.io.sourceClock := clock
+        cdc.io.sourceReset := reset
+        cdc.io.initiator <> memInterface
+        val mem = cdc.io.target
+        mem.done := true.B
+        mem.dataRead := DontCare
+        val matrix = RegInit(VecInit(Seq(1, 0, 0, 0, 1, 0, 0, 0, 1).map(x => (x << 10).S(12.W))))
+        val inputTable = RegInit(VecInit((0 until 32).map(i => {
+          val normal = i.toDouble / 31.0
+          (normal * 1024).floor.min(1023).toInt.S(11.W)
+        })))
+        val outputTable = RegInit(VecInit((0 until 64).map(i => {
+          val normal = i.toDouble / 63.0
+          (normal * 64).floor.min(63).toInt.U(6.W)
+        })))
+        when (mem.enable && mem.write) {
+          when (mem.address(8, 7) === 0.U) {
+            matrix(mem.address(4, 1)) := mem.dataWrite.asSInt
+          }
+          when (mem.address(8, 7) === 1.U) {
+            inputTable(mem.address(5, 1)) := mem.dataWrite.asSInt
+          }
+          when (mem.address(8, 7) === 2.U) {
+            outputTable(mem.address(6, 1)) := mem.dataWrite
+          }
+        }
+        colorCorrector.io.matrixR := VecInit(matrix(0), matrix(1), matrix(2))
+        colorCorrector.io.matrixG := VecInit(matrix(3), matrix(4), matrix(5))
+        colorCorrector.io.matrixB := VecInit(matrix(6), matrix(7), matrix(8))
+        colorCorrector.io.inputTable := inputTable
+        colorCorrector.io.outputTable := outputTable
+      }
+    }
   }
 }

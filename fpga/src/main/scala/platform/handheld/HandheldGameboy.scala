@@ -14,6 +14,8 @@ import lib.mem.sdram.BurstSdramController
 import lib.mem.PipelineMemoryBurstCdc
 import xilinx.MMCM
 import net.gamebub.framework.Core
+import lib.video.ColorCorrection
+import lib.mem.HandshakeMemoryCdc
 
 object HandheldGameboy {
   class Config extends Bundle {
@@ -38,6 +40,7 @@ class HandheldGameboy extends Module with Core {
       colorDepth = 5,
       framePeriod = (456 * 154).toDouble / (4 * 1024 * 1024),
     )
+    val videoFilter = new VideoFilterBasicV0(colorInDepth = 5, latency = 3)
     val audio = new AudioV0()
     val host = new HostV0()
     val pmod = new PmodV0()
@@ -121,6 +124,7 @@ class HandheldGameboy extends Module with Core {
   val registerInterface = Wire(new MemoryInterface(addressWidth = 16, dataWidth = 32))
   val biosInterface = Wire(new MemoryInterface(addressWidth = 12, dataWidth = 8)) // 4 KiB
   val dmgPaletteInterface = Wire(new MemoryInterface(addressWidth = 5, dataWidth = 16))
+  val colorCorrectInterface = Wire(new MemoryInterface(addressWidth = 9, dataWidth = 16))
   io.host.mem <> MemoryMap(
     addressWidth = 32,
     dataWidth = 32,
@@ -130,6 +134,7 @@ class HandheldGameboy extends Module with Core {
       0x2.U(4.W) -> dmgPaletteInterface,
       0x3.U(4.W) -> sdramHost,
       0x4.U(4.W) -> sramHost,
+      0x5.U(4.W) -> colorCorrectInterface,
     ))
 
   suppressEnumCastWarning {
@@ -495,4 +500,12 @@ class HandheldGameboy extends Module with Core {
     io.sdram.dataOut := controller.io.signals.dataOut
     io.sdram.dataDir := controller.io.signals.dataDir
   }
+
+  // Video filter (color correction)
+  ColorCorrection.setup(
+    clock = clock,
+    reset = reset,
+    videoFilter = io.videoFilter,
+    memInterface = colorCorrectInterface,
+  )
 }

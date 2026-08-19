@@ -35,9 +35,6 @@ pub const REG_STATUS_CART_SWITCH: u32 = 0x8000_2004;
 pub const REG_TEMP_CORE_RESET: u32 = 0x8000_F000;
 pub const REG_TEMP_COLOR_CORRECT_ENABLE: u32 = 0x8000_F004;
 
-/// Color correction base
-pub const REG_COLOR_CORRECT_PARAMS: u32 = 0xC000_0000;
-
 /// The FPGA (due to the spi implementation) can read at a speed that's some
 /// fraction of the SPI domain clock speed. At 200 MHz SPI receiver clock,
 /// 16 MHz is a safe speed.
