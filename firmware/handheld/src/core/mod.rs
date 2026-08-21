@@ -248,8 +248,8 @@ impl CoreManager {
 
     /// Legacy method, should be core-specific (setting?)
     pub fn reset_core(&mut self) {
-        let _ = self.run_core_command(&[command::CORE_HALT], NOTIFY_TIMEOUT);
-        let _ = self.run_core_command(&[command::CORE_RUN], NOTIFY_TIMEOUT);
+        let _ = self.run_core_command(&[command::CORE_HALT], &mut [], NOTIFY_TIMEOUT);
+        let _ = self.run_core_command(&[command::CORE_RUN], &mut [], NOTIFY_TIMEOUT);
     }
 
     pub fn prepare_for_power_off(&mut self) {
@@ -266,7 +266,7 @@ impl CoreManager {
 
     pub fn exit_core(&mut self) {
         if self.stage == Stage::Running {
-            let _ = self.run_core_command(&[command::CORE_HALT], NOTIFY_TIMEOUT);
+            let _ = self.run_core_command(&[command::CORE_HALT], &mut [], NOTIFY_TIMEOUT);
 
             if let Err(e) = self.persist_files() {
                 log::error!("Error saving: {}", e);
@@ -304,26 +304,28 @@ impl CoreManager {
             if start.elapsed() > timeout {
                 return Err(CoreError::CoreReadyTimeout);
             }
-            self.run_core_command(&[command::GET_STATUS], timeout)
+            let mut status = [0u32];
+            self.run_core_command(&[command::GET_STATUS], &mut status, timeout)
                 .map_err(|_| CoreError::CommandFailed(command::GET_STATUS))?;
 
-            let status = Device::lock()
-                .fpga
-                .read_u32(fpga::REG_CMD_HOST_BASE)
-                .unwrap();
-            if status == expected {
+            if status[0] == expected {
                 return Ok(());
             }
             std::thread::sleep(CORE_POLL_INTERVAL);
         }
     }
 
-    fn run_core_command(&self, command: &[u32], timeout: Duration) -> Result<(), CoreError> {
-        assert!(command.len() > 0);
+    fn run_core_command(
+        &self,
+        request: &[u32],
+        response: &mut [u32],
+        timeout: Duration,
+    ) -> Result<(), CoreError> {
+        assert!(request.len() > 0);
         // Write command and arguments
         {
             let mut device = Device::lock();
-            for (i, &x) in command.iter().enumerate() {
+            for (i, &x) in request.iter().enumerate() {
                 let _ = device
                     .fpga
                     .write_u32(fpga::REG_CMD_HOST_BASE + (4 * i as u32), x);
@@ -335,8 +337,8 @@ impl CoreManager {
         let start = Instant::now();
         let status = loop {
             if start.elapsed() > timeout {
-                log::error!("Command {:08X} timed out", command[0]);
-                return Err(CoreError::CommandTimeout(command[0]));
+                log::error!("Command {:08X} timed out", request[0]);
+                return Err(CoreError::CommandTimeout(request[0]));
             }
             let mut device = Device::lock();
             let status = device.fpga.read_u32(fpga::REG_CTRL_CMD_HOST).unwrap();
@@ -347,13 +349,24 @@ impl CoreManager {
             std::thread::sleep(CORE_POLL_INTERVAL);
         };
 
-        // End command.
-        let _ = Device::lock().fpga.write_u32(fpga::REG_CTRL_CMD_HOST, 0);
+        // Read result values and end command
+        {
+            let mut device = Device::lock();
+            for (i, x) in response.iter_mut().enumerate() {
+                *x = device
+                    .fpga
+                    .read_u32(fpga::REG_CMD_HOST_BASE + (4 * i as u32))
+                    .unwrap();
+            }
 
+            let _ = device.fpga.write_u32(fpga::REG_CTRL_CMD_HOST, 0);
+        }
+
+        // Check status.
         if (status & 0b0001) == 0 {
             Ok(())
         } else {
-            Err(CoreError::CommandFailed(command[0]))
+            Err(CoreError::CommandFailed(request[0]))
         }
     }
 
@@ -366,7 +379,11 @@ impl CoreManager {
                 .write_u32(fpga::REG_CTRL_FOCUS, has_focus as u32);
         }
 
-        let _ = self.run_core_command(&[command::NOTIFY_FOCUS, has_focus as u32], NOTIFY_TIMEOUT);
+        let _ = self.run_core_command(
+            &[command::NOTIFY_FOCUS, has_focus as u32],
+            &mut [],
+            NOTIFY_TIMEOUT,
+        );
 
         if let Some(core_handler) = self.core_handler.get_mut() {
             core_handler.on_focus_changed(has_focus);
@@ -452,7 +469,7 @@ impl CoreManager {
         }
 
         // Tell the core we're finished setting up.
-        self.run_core_command(&[command::SETUP_COMPLETE], NOTIFY_TIMEOUT)?;
+        self.run_core_command(&[command::SETUP_COMPLETE], &mut [], NOTIFY_TIMEOUT)?;
 
         // Wait for the core to be ready for run.
         self.poll_core_status(command::STATUS_CORE_HALT, SETUP_TIMEOUT)?;
@@ -464,7 +481,7 @@ impl CoreManager {
 
         // Start core.
         let _ = Device::lock().fpga.write_u32(fpga::REG_CTRL_VIBRATE, 1);
-        let _ = self.run_core_command(&[command::CORE_RUN], NOTIFY_TIMEOUT);
+        let _ = self.run_core_command(&[command::CORE_RUN], &mut [], NOTIFY_TIMEOUT);
         self.focus_changed(true);
         Ok(())
     }
@@ -522,7 +539,11 @@ impl CoreManager {
             };
 
             log::info!("Load file {} from {}", info.label, path.display());
-            self.run_core_command(&[command::FILE_WRITE_START, info.id as u32], SETUP_TIMEOUT)?;
+            self.run_core_command(
+                &[command::FILE_WRITE_START, info.id as u32],
+                &mut [],
+                SETUP_TIMEOUT,
+            )?;
 
             let file = File::open(&path);
             self.selected_files[i] = Some(path);
@@ -600,7 +621,11 @@ impl CoreManager {
                 .map_err(|_| FailedLoadFile(info.label.to_string(), "I/O error".to_string()))?;
 
             let duration = start_time.elapsed();
-            self.run_core_command(&[command::FILE_WRITE_END, info.id as u32], NOTIFY_TIMEOUT)?;
+            self.run_core_command(
+                &[command::FILE_WRITE_END, info.id as u32],
+                &mut [],
+                NOTIFY_TIMEOUT,
+            )?;
             if let Some(core_handler) = self.core_handler.get_mut() {
                 core_handler.on_after_file_load(info.id);
             }
@@ -631,7 +656,11 @@ impl CoreManager {
 
             let path = self.selected_files[i].clone().unwrap();
             log::info!("Saving file {} to {}", info.label, path.display());
-            self.run_core_command(&[command::FILE_READ_START, info.id as u32], SETUP_TIMEOUT)?;
+            self.run_core_command(
+                &[command::FILE_READ_START, info.id as u32],
+                &mut [],
+                SETUP_TIMEOUT,
+            )?;
             // TODO: read size from FPGA
             let size = self.core_handler.get_mut().unwrap().get_file_size(info.id);
 
@@ -665,7 +694,11 @@ impl CoreManager {
                 start_time.elapsed().as_millis() as u32
             );
 
-            self.run_core_command(&[command::FILE_READ_END, info.id as u32], NOTIFY_TIMEOUT)?;
+            self.run_core_command(
+                &[command::FILE_READ_END, info.id as u32],
+                &mut [],
+                NOTIFY_TIMEOUT,
+            )?;
             if let Some(core_handler) = self.core_handler.get_mut() {
                 core_handler
                     .on_after_file_save(info.id, &mut file)
