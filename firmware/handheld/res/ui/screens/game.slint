@@ -38,7 +38,7 @@ export component GameScreen inherits ScreenBase {
             height: i-list.min-height;
 
             i-list := ButtonList {
-                items: ["Return", "Reset", "Main Menu"];
+                items: ["Return", "Reset", "Exit Core"];
                 on-selected(item) => {
                     if (item == 0) {
                         root.set-menu-open(false);
