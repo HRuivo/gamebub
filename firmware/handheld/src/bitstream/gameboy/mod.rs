@@ -321,9 +321,9 @@ impl CoreHandler for Gameboy {
         Ok(())
     }
 
-    fn get_file_size(&mut self, id: u16) -> u32 {
+    fn get_file_size(&mut self, id: u16) -> Option<u32> {
         assert!(id == FILE_SAVE);
-        self.rom_header.as_ref().map_or(0, |h| h.ram_size)
+        Some(self.rom_header.as_ref().map_or(0, |h| h.ram_size))
     }
 
     fn on_after_file_save(&mut self, id: u16, file: &mut File) -> Result<(), String> {

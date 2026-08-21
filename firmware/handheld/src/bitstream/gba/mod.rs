@@ -449,11 +449,13 @@ impl CoreHandler for Gba {
         Ok(())
     }
 
-    fn get_file_size(&mut self, id: u16) -> u32 {
+    fn get_file_size(&mut self, id: u16) -> Option<u32> {
         assert!(id == FILE_SAVE);
-        self.emu_cart_config
+        let size = self
+            .emu_cart_config
             .as_ref()
-            .map_or(0, |e| e.save_type.get_size()) as u32
+            .map_or(0, |e| e.save_type.get_size()) as u32;
+        Some(size)
     }
 
     fn on_after_file_save(&mut self, id: u16, file: &mut File) -> Result<(), String> {

@@ -124,8 +124,8 @@ pub trait CoreHandler {
 
     fn on_focus_changed(&mut self, has_focus: bool);
 
-    /// Called before saving a file, returns the size of the file.
-    fn get_file_size(&mut self, id: u16) -> u32;
+    /// Called before saving a file. May override the core's file size.
+    fn get_file_size(&mut self, id: u16) -> Option<u32>;
 
     /// Called after file is written, to write any additional data.
     fn on_after_file_save(&mut self, id: u16, file: &mut File) -> Result<(), String>;
@@ -539,11 +539,6 @@ impl CoreManager {
             };
 
             log::info!("Load file {} from {}", info.label, path.display());
-            self.run_core_command(
-                &[command::FILE_WRITE_START, info.id as u32],
-                &mut [],
-                SETUP_TIMEOUT,
-            )?;
 
             let file = File::open(&path);
             self.selected_files[i] = Some(path);
@@ -551,7 +546,7 @@ impl CoreManager {
                 Ok(file) => file,
                 Err(_) if info.optional && info.initialize => {
                     log::info!("Failed to open file, clearing");
-                    clear_file_slot(info, &mut scratch);
+                    self.clear_file_slot(info, &mut scratch)?;
                     continue;
                 }
                 Err(_) if info.optional => {
@@ -562,6 +557,12 @@ impl CoreManager {
                     return Err(CannotOpenFile(info.label.to_string()));
                 }
             };
+
+            self.run_core_command(
+                &[command::FILE_WRITE_START, info.id as u32],
+                &mut [],
+                SETUP_TIMEOUT,
+            )?;
 
             if let Some(core_handler) = self.core_handler.get_mut() {
                 core_handler
@@ -622,7 +623,16 @@ impl CoreManager {
 
             let duration = start_time.elapsed();
             self.run_core_command(
-                &[command::FILE_WRITE_END, info.id as u32],
+                &[
+                    // Command
+                    command::FILE_WRITE_END,
+                    // Arg 1: file ID
+                    info.id as u32,
+                    // Arg 2: file size (bytes)
+                    transferred as u32,
+                    // Arg 3: reserved (0)
+                    0,
+                ],
                 &mut [],
                 NOTIFY_TIMEOUT,
             )?;
@@ -656,20 +666,27 @@ impl CoreManager {
 
             let path = self.selected_files[i].clone().unwrap();
             log::info!("Saving file {} to {}", info.label, path.display());
+
+            let mut file_size = 0u32;
             self.run_core_command(
                 &[command::FILE_READ_START, info.id as u32],
-                &mut [],
+                std::slice::from_mut(&mut file_size),
                 SETUP_TIMEOUT,
             )?;
-            // TODO: read size from FPGA
-            let size = self.core_handler.get_mut().unwrap().get_file_size(info.id);
+            if let Some(override_size) = self
+                .core_handler
+                .get_mut()
+                .and_then(|x| x.get_file_size(info.id))
+            {
+                file_size = override_size;
+            }
 
             let mut file = File::create(path)
                 .map_err(|_| FailedSaveFile(info.label.to_string(), "Open failed".to_string()))?;
             let mut scratch = crate::bitstream::SCRATCH.take().expect("scratch buffer");
             let buf = scratch.deref_mut();
             let mut address: u32 = info.address;
-            let mut bytes_left = size as usize;
+            let mut bytes_left = file_size as usize;
 
             let start_time = Instant::now();
             while bytes_left > 0 {
@@ -690,7 +707,7 @@ impl CoreManager {
             }
             log::info!(
                 "Saved {} bytes in {}ms",
-                size,
+                file_size,
                 start_time.elapsed().as_millis() as u32
             );
 
@@ -802,20 +819,44 @@ impl CoreManager {
         let files = files.into_iter().map(|f| (f.0, f.1.is_dir())).collect();
         Ok(files)
     }
-}
 
-/// Clear a data slot to 0xFF
-fn clear_file_slot(info: &CoreFile, buf: &mut [u8]) {
-    buf.fill(0xFF);
-    let mut pos = 0u32;
-    let len = info.max_size.max(info.exact_size);
-    while pos < len {
-        let n = ((len - pos) as usize).min(buf.len());
-        let max_clock = Some(Hertz(info.max_transfer_speed * 1000 * 2));
-        let command = SpiCommand::new(info.transfer_word_size);
-        let _ = Device::lock()
-            .fpga
-            .spi_write(max_clock, command, info.address + pos, &buf[..n]);
-        pos += n as u32;
+    /// Clear a file slot to 0xFF
+    fn clear_file_slot(&self, info: &CoreFile, buf: &mut [u8]) -> Result<(), CoreError> {
+        self.run_core_command(
+            &[command::FILE_WRITE_START, info.id as u32],
+            &mut [],
+            SETUP_TIMEOUT,
+        )?;
+
+        buf.fill(0xFF);
+        let mut pos = 0u32;
+        let len = info.max_size.max(info.exact_size);
+        while pos < len {
+            let n = ((len - pos) as usize).min(buf.len());
+            let max_clock = Some(Hertz(info.max_transfer_speed * 1000 * 2));
+            let command = SpiCommand::new(info.transfer_word_size);
+            let _ =
+                Device::lock()
+                    .fpga
+                    .spi_write(max_clock, command, info.address + pos, &buf[..n]);
+            pos += n as u32;
+        }
+
+        self.run_core_command(
+            &[
+                // Command
+                command::FILE_WRITE_END,
+                // Arg 1: file ID
+                info.id as u32,
+                // Arg 2: file size (bytes)
+                len,
+                // Arg 3: reserved (0)
+                0,
+            ],
+            &mut [],
+            NOTIFY_TIMEOUT,
+        )?;
+
+        Ok(())
     }
 }
