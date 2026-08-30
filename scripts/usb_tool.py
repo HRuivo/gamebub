@@ -9,6 +9,7 @@ REQUEST_GET_INFO = 0
 REQUEST_REBOOT = 1
 REQUEST_ENABLE_DEBUG = 2
 REQUEST_SCREENSHOT = 7
+REQUEST_LCD_DEBUG = 8
 
 
 def handle_get_info(device: usb.core.Device, args) -> None:
@@ -51,6 +52,14 @@ def handle_screenshot(device: usb.core.Device, args) -> None:
     )
 
 
+def handle_lcd_debug(device: usb.core.Device, args) -> None:
+    device.ctrl_transfer(
+        bmRequestType=REQUEST_TYPE_VENDOR_OUT,
+        bRequest=REQUEST_LCD_DEBUG,
+        data_or_wLength=bytes(args.values)
+    )
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(
         description="Utility for interacting with Game Bub handheld"
@@ -71,6 +80,11 @@ def main() -> None:
 
     screenshot_parser = subparsers.add_parser("screenshot", help="Save a screenshot")
     screenshot_parser.set_defaults(func=handle_screenshot)
+
+    lcd_parser = subparsers.add_parser("lcd", help="LCD")
+    lcd_parser.add_argument("values", nargs="+", type=lambda x: int(x, 0))
+    lcd_parser.set_defaults(func=handle_lcd_debug)
+
 
     args = parser.parse_args()
     if not hasattr(args, "func"):

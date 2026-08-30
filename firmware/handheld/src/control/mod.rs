@@ -27,6 +27,8 @@ const REQUEST_GAMEPAD_CONNECT: u8 = 4;
 const REQUEST_GAMEPAD_DISCONNECT: u8 = 5;
 const REQUEST_GAMEPAD_DATA: u8 = 6;
 
+const REQUEST_LCD_DEBUG: u8 = 8;
+
 /// Handle a control request where data is sent to the host (IN).
 pub fn handle_control_in<'a>(request: &Request, buf: &'a mut [u8]) -> Result<&'a [u8], ()> {
     match request.request {
@@ -52,6 +54,13 @@ pub fn handle_control_out(request: &Request, buf: &[u8]) -> Result<(), ()> {
         REQUEST_ENABLE_DEBUG => Ok(()),
         REQUEST_SCREENSHOT => {
             ui::send(ui::Message::Screenshot);
+            Ok(())
+        }
+        REQUEST_LCD_DEBUG => {
+            if buf.len() == 0 {
+                return Err(());
+            }
+            let _ = Device::lock().lcd.write_cmd(buf[0], &buf[1..]);
             Ok(())
         }
         REQUEST_DOCK_BEGIN => {
