@@ -58,7 +58,7 @@ where
         // Resolution control
         self.write_cmd(0x30, &[0x02])?;
         // Inversion setting: 2 dot
-        self.write_cmd(0x31, &[0x00])?;
+        self.write_cmd(0x31, &[0x02])?;
 
         // Vendor parameters
         // Source timing adjust
@@ -71,12 +71,18 @@ where
         self.write_cmd(0x41, &[0x33])?;
         self.write_cmd(0x42, &[0x01])?;
         self.write_cmd(0x43, &[0x09])?;
-        self.write_cmd(0x44, &[0x0A])?;
+        self.write_cmd(0x44, &[0x06])?;
         self.write_cmd(0x45, &[0x0A])?;
+        self.write_cmd(0x46, &[0x44])?;
+        self.write_cmd(0x47, &[0x44])?;
+
         self.write_cmd(0x50, &[0x78])?;
         self.write_cmd(0x51, &[0x78])?;
         self.write_cmd(0x52, &[0x00])?;
-        self.write_cmd(0x53, &[0x3B])?;
+        self.write_cmd(0x53, &[0x3A])?;
+        self.write_cmd(0x54, &[0x00])?;
+        self.write_cmd(0x55, &[0x3A])?;
+
         // LVD detect
         self.write_cmd(0x57, &[0x50])?;
         // Positive gamma control
@@ -120,7 +126,6 @@ where
         self.write_cmd(0x18, &[0x1D])?;
         self.write_cmd(0x26, &[0xB2])?;
         self.write_cmd(0x02, &[0x77])?;
-        self.write_cmd(0xE1, &[0x79])?;
         self.write_cmd(0xE1, &[0x79])?;
         self.write_cmd(0xB3, &[0x10])?;
 
