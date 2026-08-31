@@ -119,14 +119,15 @@ impl ColorCorrection {
             }
         }
 
-        let matrix_depth = 10;
+        let matrix_depth = 12;
         let matrix = self.matrix.map(|x| {
             let value = x * ((1 << matrix_depth) as f32);
             value as i16 as u16
         });
 
-        let internal_depth = 10;
-        let mut input_table = [0u16; 32];
+        const INPUT_DEPTH: usize = 5;
+        let internal_depth = 12;
+        let mut input_table = [0u16; 1 << INPUT_DEPTH];
         make_gamma_table(
             &mut input_table,
             self.in_gamma,
@@ -134,21 +135,31 @@ impl ColorCorrection {
             internal_depth,
         );
 
-        let output_depth = 6;
-        let mut output_table = [0u16; 64];
+        const OUTPUT_TABLE_DEPTH: usize = 10;
+        let output_depth = 8;
+        let mut output_table = [0u16; 1 << OUTPUT_TABLE_DEPTH];
         make_gamma_table(&mut output_table, 1.0 / self.out_gamma, 1.0, output_depth);
 
-        let writes: [(u32, &[u16]); 3] =
-            [(0, &matrix), (0x080, &input_table), (0x100, &output_table)];
-        for (register, data) in writes {
-            let data: &[u8] =
-                unsafe { std::slice::from_raw_parts(data.as_ptr().cast(), data.len() * 2) };
-            let command = fpga::SpiCommand::new(fpga::FpgaSpiWordSize::Bits16);
-            device
-                .fpga
-                .spi_write(Some(MegaHertz(10).into()), command, base | register, data)?;
-            // Writing to these registers takes a while, so wait after each write.
-            std::thread::sleep(Duration::from_millis(1));
+        let writes: [(u32, &[u16]); 3] = [
+            (0x0000, &matrix),
+            (0x4000, &input_table),
+            (0x8000, &output_table),
+        ];
+        for (mut register, data) in writes {
+            for chunk in data.chunks(64) {
+                let data: &[u8] =
+                    unsafe { std::slice::from_raw_parts(chunk.as_ptr().cast(), chunk.len() * 2) };
+                let command = fpga::SpiCommand::new(fpga::FpgaSpiWordSize::Bits16);
+                device.fpga.spi_write(
+                    Some(MegaHertz(10).into()),
+                    command,
+                    base | register,
+                    data,
+                )?;
+                register += data.len() as u32;
+                // Writing to these registers takes a while, so wait after each write.
+                std::thread::sleep(Duration::from_millis(1));
+            }
         }
 
         Ok(())

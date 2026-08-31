@@ -189,7 +189,7 @@ class HandheldGba extends Module with Core {
 
   val registerInterface = Wire(new MemoryInterface(addressWidth = 16, dataWidth = 32))
   val biosInterface = Wire(new MemoryInterface(addressWidth = 14, dataWidth = 32)) // 16 KiB
-  val colorCorrectInterface = Wire(new MemoryInterface(addressWidth = 9, dataWidth = 16))
+  val colorCorrectInterface = Wire(new MemoryInterface(addressWidth = 16, dataWidth = 16))
   val commandInterface = Wire(new MemoryInterface(addressWidth = 16, dataWidth = 32))
   val memoryMap = MemoryMap(
     addressWidth = 32,

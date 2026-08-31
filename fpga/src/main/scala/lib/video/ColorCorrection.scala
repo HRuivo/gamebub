@@ -5,6 +5,8 @@ import lib.log.Logger
 import lib.mem.HandshakeMemoryCdc
 import net.gamebub.framework.interface.VideoFilterBasicV0
 import lib.mem.MemoryInterface
+import chisel3.util.SRAM
+import chisel3.util.MemoryReadPort
 
 /**
  * Color correction matrix calculator
@@ -14,17 +16,16 @@ import lib.mem.MemoryInterface
  */
 class ColorCorrection(
   /// Per-channel input color depth
-  inputDepth: Int = 5,
+  val inputDepth: Int = 5,
   /// Per-channel output depth
-  outputDepth: Int = 6,
+  val outputDepth: Int = 6,
 
   /// Internal representation color depth
-  internalDepth: Int = 10,
+  val internalDepth: Int = 10,
   /// Internal matrix depth
-  matrixDepth: Int = 10,
+  val matrixDepth: Int = 10,
   /// Internal output table depth
-  outputTableDepth: Int = 6,
-
+  val outputTableDepth: Int = 6,
 ) extends Module {
   val io = IO(new Bundle {
     /// Enable corrections, or false to pass colors through unchanged.
@@ -37,7 +38,7 @@ class ColorCorrection(
     val matrixG = Input(Vec(3, SInt((matrixDepth + 2).W)))
     val matrixB = Input(Vec(3, SInt((matrixDepth + 2).W)))
     val inputTable = Input(Vec(1 << inputDepth, SInt((internalDepth + 1).W)))
-    val outputTable = Input(Vec(1 << outputTableDepth, UInt(outputDepth.W)))
+    val outputTable = Vec(3, Flipped(new MemoryReadPort(UInt(outputDepth.W), 1 << outputTableDepth)))
   })
   val logger = Logger("color")
 
@@ -61,9 +62,12 @@ class ColorCorrection(
   val indexG = clamp(correctG, 0.S, ((1 << internalDepth) - 1).S).asUInt >> (internalDepth - outputTableDepth)
   val indexB = clamp(correctB, 0.S, ((1 << internalDepth) - 1).S).asUInt >> (internalDepth - outputTableDepth)
 
-  io.out.r := RegNext(io.outputTable(indexR.asUInt))
-  io.out.g := RegNext(io.outputTable(indexG.asUInt))
-  io.out.b := RegNext(io.outputTable(indexB.asUInt))
+  // Read from output table
+  for ((i, channel, addr) <- Seq((0, io.out.r, indexR), (1, io.out.g, indexG), (2, io.out.b, indexB))) {
+    io.outputTable(i).enable := true.B
+    io.outputTable(i).address := addr.asUInt
+    channel := io.outputTable(i).data
+  }
 
   // Original input colors, delayed for the same number of cycles (if corrections are disabled)
   val delayInput = RegNext(RegNext(RegNext(io.in)))
@@ -98,44 +102,55 @@ object ColorCorrection {
     memInterface: MemoryInterface,
   ): Unit = {
     withClockAndReset (videoFilter.clock, videoFilter.reset) {
-      val colorCorrector = Module(new ColorCorrection(inputDepth = 5, outputDepth = 6))
+      val colorCorrector = Module(new ColorCorrection(
+        inputDepth = 5,
+        outputDepth = 8,
+        internalDepth = 12,
+        matrixDepth = 12,
+        outputTableDepth = 10,
+      ))
       colorCorrector.io.enable := true.B
       colorCorrector.io.in := videoFilter.dataIn
       videoFilter.dataOut := colorCorrector.io.out.convertTo(videoFilter.dataOut)
 
       {
-        val cdc = Module(new HandshakeMemoryCdc(addressWidth = 9, dataWidth = 16))
+        val cdc = Module(new HandshakeMemoryCdc(addressWidth = 16, dataWidth = 16))
         cdc.io.sourceClock := clock
         cdc.io.sourceReset := reset
         cdc.io.initiator <> memInterface
         val mem = cdc.io.target
         mem.done := true.B
         mem.dataRead := DontCare
-        val matrix = RegInit(VecInit(Seq(1, 0, 0, 0, 1, 0, 0, 0, 1).map(x => (x << 10).S(12.W))))
-        val inputTable = RegInit(VecInit((0 until 32).map(i => {
-          val normal = i.toDouble / 31.0
-          (normal * 1024).floor.min(1023).toInt.S(11.W)
-        })))
-        val outputTable = RegInit(VecInit((0 until 64).map(i => {
-          val normal = i.toDouble / 63.0
-          (normal * 64).floor.min(63).toInt.U(6.W)
-        })))
+        val matrix = Reg(Vec(9, SInt((colorCorrector.matrixDepth + 2).W)))
+        val inputTable = Reg(Vec(1 << colorCorrector.inputDepth, SInt((colorCorrector.internalDepth + 1).W)))
+        val outputTable = SRAM(
+          1 << colorCorrector.outputTableDepth,
+          UInt(colorCorrector.outputDepth.W),
+          numReadPorts = 3,
+          numWritePorts = 1,
+          numReadwritePorts = 0,
+        )
+        outputTable.writePorts(0) := DontCare
+        outputTable.writePorts(0).enable := false.B
+
         when (mem.enable && mem.write) {
-          when (mem.address(8, 7) === 0.U) {
+          when (mem.address(15, 14) === 0.U) {
             matrix(mem.address(4, 1)) := mem.dataWrite.asSInt
           }
-          when (mem.address(8, 7) === 1.U) {
-            inputTable(mem.address(5, 1)) := mem.dataWrite.asSInt
+          when (mem.address(15, 14) === 1.U) {
+            inputTable(mem.address(colorCorrector.inputDepth, 1)) := mem.dataWrite.asSInt
           }
-          when (mem.address(8, 7) === 2.U) {
-            outputTable(mem.address(6, 1)) := mem.dataWrite
+          when (mem.address(15, 14) === 2.U) {
+            outputTable.writePorts(0).enable := true.B
+            outputTable.writePorts(0).address := mem.address(colorCorrector.outputTableDepth, 1)
+            outputTable.writePorts(0).data := mem.dataWrite
           }
         }
         colorCorrector.io.matrixR := VecInit(matrix(0), matrix(1), matrix(2))
         colorCorrector.io.matrixG := VecInit(matrix(3), matrix(4), matrix(5))
         colorCorrector.io.matrixB := VecInit(matrix(6), matrix(7), matrix(8))
         colorCorrector.io.inputTable := inputTable
-        colorCorrector.io.outputTable := outputTable
+        colorCorrector.io.outputTable <> outputTable.readPorts
       }
     }
   }
