@@ -122,7 +122,6 @@ export component MainWindow inherits Window {
                 if (Global.current-screen == ScreenId.Cores): CoresScreen {
                     init => {
                         Global.ui-status-bar = true;
-                        self.focus();
                         root.screen-title = self.title;
                     }
                 }
