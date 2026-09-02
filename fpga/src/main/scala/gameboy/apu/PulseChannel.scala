@@ -34,28 +34,32 @@ class PulseChannel extends Module {
 
   // Counter within the wave table. Only reset when APU turns off.
   val waveIndex = RegInit(0.U(3.W))
-  // Counter that advances the waveIndex. Reset on trigger.
-  val waveCounter = RegInit(0.U(14.W))
-  // Wave counter counts up to this value.
-  val waveCounterMax = (2048.U(14.W) - io.wavelength) << 2
+  // Counter that advances the waveIndex.
+  val waveCounter = RegInit(0.U(13.W))
 
   when (io.trigger) {
-    waveCounter := waveCounterMax
+    waveCounter := io.wavelength << 2
   }
 
   when (io.pulse4Mhz) {
-    when(waveCounter === 0.U) {
+    val nextWaveCounter = waveCounter + 1.U
+    waveCounter := nextWaveCounter
+    when (nextWaveCounter === 0.U) {
+      // Overflow
+      waveCounter := io.wavelength << 2
       waveIndex := waveIndex + 1.U
-      waveCounter := waveCounterMax
-    }.otherwise {
-      waveCounter := waveCounter - 1.U
     }
   }
 
   io.dacEnabled := io.volumeConfig.initialVolume =/= 0.U || io.volumeConfig.modeIncrease
   io.channelDisable := lengthUnit.io.channelDisable
   io.out := Mux(
-    VecInit(waveIndex < 1.U, waveIndex < 2.U, waveIndex < 4.U, waveIndex < 6.U)(io.duty),
+    VecInit(
+      waveIndex === 7.U,
+      waveIndex === 0.U || waveIndex >= 7.U,
+      waveIndex === 0.U || waveIndex >= 5.U,
+      waveIndex >= 1.U && waveIndex <= 6.U,
+    )(io.duty),
     volumeUnit.io.out, 0.U
   )
 }
@@ -77,42 +81,68 @@ class PulseChannelWithSweep extends Module {
   })
 
   val regWavelength = RegInit(0.U(11.W))
+  val wavelength = WireDefault(regWavelength)
 
   // Frequency sweep
   val freqSweepShadow = RegInit(0.U(11.W))
   val freqSweepEnabled = RegInit(false.B)
   val freqSweepTimer = RegInit(0.U(3.W))
-  val freqSweepOverflow = RegInit(false.B)
+  val freqSweepOverflow = WireDefault(false.B)
+
   when (io.trigger) {
     freqSweepOverflow := false.B
-    freqSweepShadow := io.wavelength
+    freqSweepShadow := wavelength
     freqSweepTimer := io.sweepConfig.pace
     freqSweepEnabled := (io.sweepConfig.pace =/= 0.U) || (io.sweepConfig.slope =/= 0.U)
-  } .elsewhen (io.ticks.frequency && freqSweepEnabled) {
-    freqSweepTimer := freqSweepTimer - 1.U
-    when (freqSweepTimer === 0.U) {
+
+    // Overflow check (on trigger)
+    when (io.sweepConfig.slope =/= 0.U && !io.sweepConfig.decrease) {
+      val checkFreq = wavelength +& (wavelength >> io.sweepConfig.slope).asUInt
+      when (checkFreq >= 2048.U) {
+        freqSweepOverflow := true.B
+      }
+    }
+  } .elsewhen (io.ticks.frequency) {
+    val newTimer = freqSweepTimer - 1.U
+    freqSweepTimer := newTimer
+    when (newTimer === 0.U) {
       freqSweepTimer := io.sweepConfig.pace
-      val offset = (freqSweepShadow >> io.sweepConfig.slope).asUInt
-      val newFreq = Wire(UInt(12.W))
-      when (io.sweepConfig.decrease) {
-        newFreq := freqSweepShadow - offset
-      } .otherwise {
-        newFreq := freqSweepShadow +& offset
+
+      when (freqSweepEnabled && io.sweepConfig.pace =/= 0.U) {
+        val offset = (freqSweepShadow >> io.sweepConfig.slope).asUInt
+        val newFreq = Wire(UInt(12.W))
+        when (io.sweepConfig.decrease) {
+          newFreq := freqSweepShadow - offset
+        } .otherwise {
+          newFreq := freqSweepShadow +& offset
+        }
+
+        // Overflow check 1
         when (newFreq >= 2048.U) {
           freqSweepOverflow := true.B
+        } .elsewhen (io.sweepConfig.slope =/= 0.U) {
+          freqSweepShadow := newFreq
+          regWavelength := newFreq
+
+          // Overflow check 2
+          when (!io.sweepConfig.decrease) {
+            val secondFreq = newFreq +& (newFreq >> io.sweepConfig.slope).asUInt
+            when (secondFreq >= 2048.U) {
+              freqSweepOverflow := true.B
+            }
+          }
         }
       }
-
-      freqSweepShadow := newFreq
-      regWavelength := newFreq
     }
   }
 
   when (io.wavelengthLoad =/= 0.U) {
-    regWavelength := Cat(
+    val newValue = Cat(
       Mux(io.wavelengthLoad(1), io.wavelength(10, 8), regWavelength(10, 8)),
       Mux(io.wavelengthLoad(0), io.wavelength(7, 0), regWavelength(7, 0)),
     )
+    regWavelength := newValue
+    wavelength := newValue
   }
 
   // This channel is just the regular pulse channel with a frequency sweep unit.
@@ -123,7 +153,7 @@ class PulseChannelWithSweep extends Module {
   pulseChannel.io.ticks := io.ticks
   pulseChannel.io.lengthConfig := io.lengthConfig
   pulseChannel.io.volumeConfig := io.volumeConfig
-  pulseChannel.io.wavelength := regWavelength
+  pulseChannel.io.wavelength := wavelength
   pulseChannel.io.duty := io.duty
   io.dacEnabled := pulseChannel.io.dacEnabled
   io.channelDisable := pulseChannel.io.channelDisable || freqSweepOverflow
