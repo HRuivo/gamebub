@@ -1,10 +1,11 @@
-package platform.handheld
+package platform.handheld.spi
 
 import chisel3._
 import chisel3.util._
 import lib.mem.MemoryInterface
 import lib.util.ResetSynchronizer
 import xilinx.{XpmCdcSingle, XpmFifoAsync}
+import platform.handheld.spi.{SpiCommand, SpiLineWidth, SpiSignals}
 
 /**
  * SPI receiver with a FIFO for CDC.

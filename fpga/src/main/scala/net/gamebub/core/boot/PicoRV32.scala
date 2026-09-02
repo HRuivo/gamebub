@@ -1,4 +1,4 @@
-package platform.handheld.boot
+package net.gamebub.core.boot
 
 import chisel3._
 

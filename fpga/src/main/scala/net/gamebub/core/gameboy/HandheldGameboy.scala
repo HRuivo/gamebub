@@ -1,22 +1,23 @@
-package platform.handheld
+package net.gamebub.core.gameboy
 
 import chisel3._
 import chisel3.util._
 import gameboy.Gameboy
 import gameboy.cart.emu.{EmuCartConfig, EmuCartridge, Mbc3RtcAccess, RtcState}
+import HandheldGameboy.CommandState
 import lib.mem.{MemoryInterface, MemoryMap, PipelineInterfaceBridge, RegisterMap}
-import lib.util.ButtonFilter
-import lib.video.ColorRGB
-import net.gamebub.framework.interface._
 import lib.mem.MemoryArbiter
 import lib.mem.PipelineMemoryArbiter
-import lib.mem.sdram.BurstSdramController
 import lib.mem.PipelineMemoryBurstCdc
-import xilinx.MMCM
-import net.gamebub.framework.Core
-import lib.video.ColorCorrection
 import lib.mem.HandshakeMemoryCdc
-import platform.handheld.HandheldGameboy.CommandState
+import lib.mem.sdram.BurstSdramController
+import lib.mem.sram.AsyncSramController
+import lib.util.ButtonFilter
+import lib.video.ColorCorrection
+import lib.video.ColorRGB
+import net.gamebub.framework.interface._
+import net.gamebub.framework.Core
+import xilinx.MMCM
 
 object HandheldGameboy {
   class Config extends Bundle {

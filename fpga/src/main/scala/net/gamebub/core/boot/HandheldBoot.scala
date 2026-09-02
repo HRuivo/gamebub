@@ -1,9 +1,8 @@
-package platform.handheld
+package net.gamebub.core.boot
 
 import chisel3._
 import chisel3.util._
 import lib.mem.MemoryMap
-import platform.handheld.boot.{CartridgeUtility, Logo, picorv32}
 import net.gamebub.framework.interface._
 import lib.mem.MemoryInterface
 import chisel3.util.SRAM
@@ -12,6 +11,7 @@ import chisel3.simulator.PeekPokeAPI.TestableData
 import gba.MmioMap.ReadFn
 import xilinx.MMCM
 import net.gamebub.framework.Core
+import platform.handheld.HandheldTop
 
 class HandheldBoot extends Module with Core {
     val mmcmVcoHz = 50_000_000.toDouble / 3 * 56.375

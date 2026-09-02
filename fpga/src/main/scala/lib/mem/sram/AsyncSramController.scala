@@ -1,9 +1,9 @@
-package platform.handheld
+package lib.mem.sram
 
 import chisel3._
 import chisel3.util._
 import lib.mem.MemoryInterface
-import platform.handheld.AsyncSramController.State
+import AsyncSramController.State
 import xilinx.ODDRWrapper
 
 object AsyncSramController {

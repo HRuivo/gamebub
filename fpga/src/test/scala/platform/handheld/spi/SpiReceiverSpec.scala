@@ -1,4 +1,4 @@
-package platform.handheld
+package platform.handheld.spi
 
 import chisel3._
 import chisel3.util._
@@ -6,6 +6,7 @@ import chiseltest._
 import org.scalatest.freespec.AnyFreeSpec
 
 import scala.collection.mutable
+import platform.handheld.spi.SpiReceiver
 
 class SpiReceiverSpec extends AnyFreeSpec with ChiselScalatestTester {
   private val CommandWrite = 0 | (1 << 1) | (1 << 4)

@@ -36,7 +36,7 @@ COMMON_FILES: list[str] = [
 SIMS: list[Sim] = [
     Sim(
         name="gameboy",
-        main_class="platform.sim.SimGameboy",
+        main_class="net.gamebub.core.gameboy.SimGameboy",
         top_module="SimGameboy",
         files=[
             "sim/gb/cartridge.hpp",
@@ -47,7 +47,7 @@ SIMS: list[Sim] = [
     ),
     Sim(
         name="gba",
-        main_class="platform.sim.SimGba",
+        main_class="net.gamebub.core.gba.SimGba",
         top_module="SimGba",
         files=[
             "sim/gba/cartridge.hpp",

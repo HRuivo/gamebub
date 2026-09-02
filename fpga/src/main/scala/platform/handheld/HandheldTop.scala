@@ -4,18 +4,13 @@ import chisel3._
 import chisel3.util._
 import _root_.circt.stage.ChiselStage
 import lib.mem.{MemoryInterface, MemoryMap, RegisterMap}
+import lib.util.{FractionalDivider, ButtonFilter}
 import lib.video.{Color, ColorARGB, ColorRGB}
-import xilinx.{XpmCdcHandshake, XpmCdcSingle, XpmCdcSyncRst}
+import net.gamebub.framework.{Core, CoreException}
 import net.gamebub.framework.interface._
-import net.gamebub.framework.Core
-import lib.util.FractionalDivider
-import platform.handheld.display.DisplayDriverIO
-import platform.handheld.display.ILI9806E
-import platform.handheld.display.ILI9488
-import platform.handheld.display.ST7262E43
-import platform.handheld.display.DpiSignals
-import net.gamebub.framework.CoreException
-import lib.util.ButtonFilter
+import platform.handheld.display._
+import platform.handheld.spi.SpiReceiverFifo
+import xilinx.{XpmCdcHandshake, XpmCdcSingle, XpmCdcSyncRst}
 
 object HandheldTop extends App {
   // Parse arguments.
@@ -134,7 +129,12 @@ class HandheldTop[T <: Core](coreFactory: () => T, revision: Revision) extends M
     val lcdDataR = Output(UInt(revision.displayColorDepth.W))
     val lcdDataG = Output(UInt(revision.displayColorDepth.W))
     val lcdDataB = Output(UInt(revision.displayColorDepth.W))
-    val dac = Output(new I2sSignals)
+    val dac = Output(new Bundle {
+      val mclk = Output(Bool())
+      val wclk = Output(Bool())
+      val bclk = Output(Bool())
+      val data = Output(UInt(1.W))
+    })
 
     /** HDMI */
     val hdmiEnable = Output(Bool())

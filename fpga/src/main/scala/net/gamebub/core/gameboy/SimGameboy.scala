@@ -1,4 +1,4 @@
-package platform.sim
+package net.gamebub.core.gameboy
 
 import chisel3._
 import _root_.circt.stage.ChiselStage

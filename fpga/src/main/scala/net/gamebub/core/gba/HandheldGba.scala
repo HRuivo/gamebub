@@ -1,20 +1,21 @@
-package platform.handheld
+package net.gamebub.core.gba
 
 import chisel3._
 import chisel3.util._
 import gba.GBA
 import gba.cart.emu.EmulatedCartridge
-import lib.mem.cache.DirectReadCache
+import HandheldGba.CommandState
 import lib.mem.{MemoryArbiter, MemoryInterface, MemoryMap, PipelineInterfaceBridge, PipelineMemoryInterface, RegisterMap}
-import lib.util.ButtonFilter
-import net.gamebub.framework.interface._
 import lib.mem.PipelineMemoryArbiter
-import lib.mem.sdram.BurstSdramController
 import lib.mem.PipelineMemoryBurstCdc
-import xilinx.MMCM
-import net.gamebub.framework.Core
+import lib.mem.cache.DirectReadCache
+import lib.mem.sdram.BurstSdramController
+import lib.mem.sram.AsyncSramController
+import lib.util.ButtonFilter
 import lib.video.ColorCorrection
-import platform.handheld.HandheldGba.CommandState
+import net.gamebub.framework.Core
+import net.gamebub.framework.interface._
+import xilinx.MMCM
 
 
 object HandheldGba {

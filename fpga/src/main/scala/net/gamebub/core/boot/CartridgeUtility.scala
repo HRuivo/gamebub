@@ -1,10 +1,10 @@
-package platform.handheld.boot
+package net.gamebub.core.boot
 
 import chisel3._
 import chisel3.util._
 import lib.mem.{MemoryInterface, RegisterMap}
-import platform.handheld.boot.CartridgeUtility.Opcode.Value
-import platform.handheld.boot.CartridgeUtility.{CartData, Opcode, State}
+import CartridgeUtility.Opcode.Value
+import CartridgeUtility.{CartData, Opcode, State}
 import net.gamebub.framework.interface.CartridgePortV0
 
 object CartridgeUtility {
