@@ -6,7 +6,7 @@ use std::{
 };
 
 use super::super::slint::Backend;
-use slint::{ComponentHandle, Model as _, ModelRc, SharedString, VecModel};
+use slint::{ComponentHandle, Model, ModelRc, SharedString, VecModel};
 
 use crate::{
     device::Device,
@@ -17,6 +17,37 @@ use crate::{
 use super::UiState;
 
 pub const BASE_DIR: &str = "/sdcard/";
+
+struct FileListModel {
+    data: Vec<(String, bool)>,
+}
+
+impl Model for FileListModel {
+    type Data = crate::ui::slint::FileListEntry;
+
+    fn row_count(&self) -> usize {
+        self.data.len()
+    }
+
+    fn row_data(&self, row: usize) -> Option<Self::Data> {
+        if row >= self.data.len() {
+            return None;
+        }
+        let (name, is_dir) = &self.data[row];
+        Some(crate::ui::slint::FileListEntry {
+            name: SharedString::from(name),
+            icon: if *is_dir {
+                FileIcon::Folder
+            } else {
+                FileIcon::Blank
+            },
+        })
+    }
+
+    fn model_tracker(&self) -> &dyn slint::ModelTracker {
+        &()
+    }
+}
 
 impl UiState {
     /// Set up the "Cores" screen.
@@ -111,22 +142,9 @@ impl UiState {
             .position(|(f, _)| *f == self.core_file_select_filename)
             .unwrap_or(0);
 
-        let files = ModelRc::from(Rc::new(VecModel::from(
-            files
-                .into_iter()
-                .map(|(name, is_dir)| crate::ui::slint::FileListEntry {
-                    name: name.into(),
-                    icon: if is_dir {
-                        FileIcon::Folder
-                    } else {
-                        FileIcon::Blank
-                    },
-                })
-                .collect::<Vec<_>>(),
-        )));
-
         let root = self.root.unwrap();
         let backend = root.global::<Backend>();
+        let files = ModelRc::new(FileListModel { data: files });
         backend.set_core_file_select_list(files);
 
         {
