@@ -2,7 +2,7 @@ use std::{
     fmt::{Debug, Display},
     fs::File,
     io::{Read, Seek, Write},
-    path::PathBuf,
+    path::{Path, PathBuf},
 };
 
 use esp_idf_svc::hal::units::Hertz;
@@ -12,7 +12,7 @@ use thiserror::Error;
 use crate::{
     core::{CoreFile, CoreHandler, CoreInfo},
     device::{drivers::fpga, Device},
-    kvs,
+    kvs, ui,
 };
 
 use super::{
@@ -444,6 +444,13 @@ impl CoreHandler for Gba {
             let _ = device
                 .fpga
                 .write_u32(REG_EMU_CART_CONFIG, EmulatedCartridgeConfig::DISABLED);
+        }
+
+        // Warn if using built-in GBA bios
+        if !Path::new("/sdcard/system/gba.bios.bin").is_file() {
+            ui::send(ui::Message::Notification(ui::Notification::new_long(
+                "No GBA BIOS provided:\nsome games may have bugs\n(see User Guide)".into(),
+            )));
         }
 
         Ok(())
