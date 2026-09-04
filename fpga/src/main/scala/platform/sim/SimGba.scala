@@ -22,6 +22,10 @@ object SimGba extends App {
     args,
     firtoolOpts = Array(
       "--preserve-aggregate=1d-vec",
+      "-enable-layers=Verification",
+      "-enable-layers=Verification.Assert",
+      "-enable-layers=Verification.Assume",
+      "-enable-layers=Verification.Cover",
     )
   )
 }

@@ -8,7 +8,17 @@ import gameboy.{ClockConfig, Gameboy, JoypadState}
 import gameboy.ppu.PpuOutput
 
 object SimGameboy extends App {
-  ChiselStage.emitSystemVerilogFile(new SimGameboy, args)
+  ChiselStage.emitSystemVerilogFile(
+    new SimGameboy,
+    args,
+    firtoolOpts = Array(
+      "--preserve-aggregate=1d-vec",
+      "-enable-layers=Verification",
+      "-enable-layers=Verification.Assert",
+      "-enable-layers=Verification.Assume",
+      "-enable-layers=Verification.Cover",
+    )
+  )
 }
 
 class SimGameboy extends Module {
