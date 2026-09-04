@@ -122,8 +122,13 @@ void Simulator::simulate_frame()
 
 void Simulator::stepAudio()
 {
+    int interval = clockHz() / audioSampleHz();
+    if (top->io_clockConfig_provide8Mhz) {
+        interval *= 2;
+    }
+
     audioTimer++;
-    if (audioTimer == (clockHz() / audioSampleHz())) {
+    if (audioTimer == interval) {
         int16_t mask = 1U << (10 - 1);
         int16_t left = (top->io_apu_left ^ mask) - mask;
         int16_t right = (top->io_apu_right ^ mask) - mask;
