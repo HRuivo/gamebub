@@ -26,6 +26,9 @@ class ILI9806E(
     val currentFrame = RegInit(0.U(1.W))
     /// Whether the display is currently synchronized with the render
     val regLocked = RegInit(true.B)
+    /// Whether we got a new frame, delaying vblank for the next one to resync
+    val regResyncReady = RegInit(false.B)
+    val regResyncWait = RegInit(false.B)
     val newFrameReady = io.lastRenderedFrame =/= currentFrame
     io.displayFrame := currentFrame
 
@@ -86,13 +89,34 @@ class ILI9806E(
         when (y === (vSync - 1).U) {
             regVsync := false.B
         } .elsewhen ((y >= (totalHeightMin - 1).U) && newFrameReady) {
-            // New frame available, start rendering.
-            startFrame := true.B
+            when (regResyncReady) {
+                // Skip this frame.
+                regResyncReady := false.B
+                regResyncWait := true.B
+                currentFrame := io.lastRenderedFrame
+            } .otherwise {
+                // New frame available, start rendering.
+                startFrame := true.B
+                regResyncWait := false.B
+            }
+        } .elsewhen (regResyncWait) {
+            // We expect to get the next frame soon, so we're waiting longer than usual.
+            when (y === (totalHeightMax * 2).U) {
+                // ... but not that long.
+                regLocked := false.B
+                startFrame := true.B
+                regResyncWait := false.B
+            }
         } .elsewhen (y === (totalHeightMax - 1).U) {
             // Hit the maximum allowed total height without a new frame coming in:
             // source is too slow, switch to rapid refresh (no longer locked)
             regLocked := false.B
             startFrame := true.B
+        }
+
+        when ((y < (totalHeightMin - 1).U) && newFrameReady) {
+            // New frame in the middle of drawing, skip that frame to resync.
+            regResyncReady := true.B
         }
     } .otherwise {
         x := x + 1.U
