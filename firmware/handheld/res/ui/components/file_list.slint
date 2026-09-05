@@ -115,15 +115,7 @@ export component FileListViewBase inherits ListView {
     }
 
     protected function focus-page-up() {
-        if root.focus-item != root.first-visible-item() {
-            root.set-focus-item(root.first-visible-item())
-        } else {
-            root.set-focus-item(root.item-at-y(root.item-y(root.first-visible-item()) - root.height));
-        }
-    }
-
-    protected function focus-first() {
-        root.set-focus-item(0);
+        root.set-focus-item(max(0, root.focus-item - floor(root.height / root.item-height)));
     }
 
     protected function focus-down() {
@@ -131,38 +123,11 @@ export component FileListViewBase inherits ListView {
     }
 
     protected function focus-page-down() {
-        if root.focus-item != root.last-visible-item() {
-            root.set-focus-item(root.last-visible-item())
-        } else {
-            root.set-focus-item(root.item-at-y(root.item-y(root.last-visible-item()) + root.height));
-        }
-    }
-
-    protected function focus-last() {
-        root.set-focus-item(root.model.length - 1);
+        root.set-focus-item(min(root.model.length - 1, root.focus-item + floor(root.height / root.item-height)));
     }
 
     protected function select-focus-item() {
         root.set-current-item(root.focus-item);
-    }
-
-    protected function focus-current-item() {
-        if root.current-item == -1 && !root.has-item-been-selected && root.model.length > 0 {
-            root.set-current-item(0);
-        }
-        root.has-item-been-selected = true;
-
-        if (root.current-item-y + root.item-height < 0 || root.current-item-y > root.height) {
-            root.focus-item = root.first-visible-item();
-        }
-    }
-
-    protected function toggle-focus-item-selection() {
-        if (root.current-item == root.focus-item) {
-            root.current-item = -1;
-        } else {
-            root.select-focus-item();
-        }
     }
 
     protected function set-focus-item(index: int) {
@@ -201,6 +166,14 @@ export component FileListView inherits FileListViewBase {
                 return accept;
             } else if (event.text == "a" && !event.repeat) {
                 root.on-item-selected(root.current-item);
+                return accept;
+            } else if (event.text == "l") {
+                root.focus-page-up();
+                root.select-focus-item();
+                return accept;
+            } else if (event.text == "r") {
+                root.focus-page-down();
+                root.select-focus-item();
                 return accept;
             }
             reject
