@@ -1,4 +1,4 @@
-import { Backend } from "../../common.slint";
+import { Backend, Global } from "../../common.slint";
 import { FileListView } from "../../components/file_list.slint";
 import { ControlHint } from "../../components/control_hint.slint";
 
@@ -28,10 +28,15 @@ export component CoreFileSelect {
                 }
                 accept
             } else if (event.text == "b" && !event.repeat) {
-                on-cancel();
-                accept
-            } else if (event.text == "x" && !event.repeat) {
                 Backend.core-file-select-up();
+                accept
+            } else {
+                reject
+            }
+        }
+        key-released(event) => {
+            if (event.text == "Home" && !Global.home-consumed) {
+                on-cancel();
                 accept
             } else {
                 reject
@@ -86,12 +91,12 @@ export component CoreFileSelect {
 
                 ControlHint {
                     label: "Back";
-                    button: "b";
+                    button: "home";
                 }
 
                 ControlHint {
                     label: "Up";
-                    button: "x";
+                    button: "b";
                 }
 
                 ControlHint {
