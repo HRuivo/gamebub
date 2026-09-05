@@ -1,13 +1,14 @@
 
 import { Button } from "../components/button.slint";
 import { Global, Backend } from "../common.slint";
+import { ButtonList } from "button_list.slint";
 
 export component PowerMenu inherits PopupWindow {
     close-policy: no-auto-close;
 
     init => {
         // forward-focus doesn't work with PopupWindow
-        btn-close.focus();
+        i-list.focus();
     }
 
     Rectangle {
@@ -23,44 +24,19 @@ export component PowerMenu inherits PopupWindow {
         border-width: 1px;
         x: (root.width - self.width) / 2;
         y: (root.height - self.height) / 2;
-        width: i-layout.min-width + 20px;
-        height: i-layout.min-height;
-        i-layout := VerticalLayout {
-            padding: 8px;
-            spacing: 4px;
-            btn-power-off := Button {
-                text: "Power Off";
-                on-down => {
-                    btn-reboot.focus();
-                    accept
-                }
-                on-pressed => {
+        width: i-list.min-width + 20px;
+        height: i-list.min-height;
+
+        i-list := ButtonList {
+            items: ["Power Off", "Reboot", "Close"];
+            focused-item: 2;
+
+            on-selected(item) => {
+                if (item == 0) {
                     Backend.power-off();
-                }
-            }
-
-            btn-reboot := Button {
-                text: "Reboot";
-                on-up => {
-                    btn-power-off.focus();
-                    accept
-                }
-                on-down => {
-                    btn-close.focus();
-                    accept
-                }
-                on-pressed => {
+                } else if (item == 1) {
                     Backend.reboot();
-                }
-            }
-
-            btn-close := Button {
-                text: "Close";
-                on-up => {
-                    btn-reboot.focus();
-                    accept
-                }
-                on-pressed => {
+                } else if (item == 2) {
                     root.close();
                 }
             }

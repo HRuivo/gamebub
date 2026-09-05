@@ -1,6 +1,7 @@
 import { Global, ScreenId, Backend } from "../common.slint";
 import { ScreenBase } from "../components/screen.slint";
 import { Button } from "../components/button.slint";
+import { ButtonList } from "../components/button_list.slint";
 
 export component GameScreen inherits ScreenBase {
     private property <bool> paused: false;
@@ -11,7 +12,7 @@ export component GameScreen inherits ScreenBase {
         Backend.game-set-paused(paused);
         self.paused = paused;
         if (paused) {
-            btn-resume.focus();
+            i-list.focus();
         } else {
             i-focus-scope.focus();
         }
@@ -33,45 +34,18 @@ export component GameScreen inherits ScreenBase {
             background: #FFF;
             border-color: black;
             border-width: 1px;
-            width: i-layout.min-width + 20px;
-            height: i-layout.min-height;
-            i-layout := VerticalLayout {
-                padding: 8px;
-                spacing: 4px;
-                btn-resume := Button {
-                    text: "Resume";
-                    on-down => {
-                        btn-reset.focus();
-                        accept
-                    }
-                    on-pressed => {
-                        root.set-paused(false);
-                    }
-                }
+            width: i-list.min-width + 20px;
+            height: i-list.min-height;
 
-                btn-reset := Button {
-                    text: "Reset";
-                    on-up => {
-                        btn-resume.focus();
-                        accept
-                    }
-                    on-down => {
-                        btn-main-menu.focus();
-                        accept
-                    }
-                    on-pressed => {
+            i-list := ButtonList {
+                items: ["Resume", "Reset", "Main Menu"];
+                on-selected(item) => {
+                    if (item == 0) {
+                        root.set-paused(false);
+                    } else if (item == 1) {
                         Backend.game-reset();
                         root.set-paused(false);
-                    }
-                }
-
-                btn-main-menu := Button {
-                    text: "Main Menu";
-                    on-up => {
-                        btn-reset.focus();
-                        accept
-                    }
-                    on-pressed => {
+                    } else if (item == 2) {
                         Backend.game-exit();
                     }
                 }
