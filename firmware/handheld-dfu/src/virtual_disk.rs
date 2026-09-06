@@ -132,7 +132,10 @@ impl Uf2VirtualDisk {
             if &tag[0..4] != b"bub!" {
                 return;
             }
-            if self.hw_version.as_u32() != 0 {
+            if self.hw_version.as_u32() != 0
+                && self.hw_version.major() != 0
+                && self.hw_version.major() != 255
+            {
                 if tag[6] != self.hw_version.major() || tag[7] != self.hw_version.product() {
                     return;
                 }
