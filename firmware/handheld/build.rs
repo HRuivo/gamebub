@@ -20,4 +20,6 @@ fn main() {
         .expect("git output invalid utf-8")
         .trim();
     println!("cargo:rustc-env=GIT_COMMIT={}", commit_hash);
+
+    println!("cargo:rustc-link-arg=-Wl,--wrap=esp_panic_handler");
 }

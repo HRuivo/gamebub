@@ -284,6 +284,22 @@ impl Device<'_> {
         crate::led::LedController::start(led);
         crate::led::LedController::set_behavior(crate::led::LedBehavior::LOADING);
 
+        // Mount sdcard to /sdcard
+        let sdcard = drivers::sdcard::mount_sdcard(
+            "/sdcard",
+            pin_sdio_clk,
+            pin_sdio_cmd,
+            pin_sdio_d0,
+            pin_sdio_d1,
+            pin_sdio_d2,
+            pin_sdio_d3,
+            Some(pin_sd_detect),
+        )
+        .ok();
+        if sdcard.is_some() {
+            crate::crash_handler::maybe_persist();
+        }
+
         // TODO: see if we can avoid keeping FPGA power on all the time
         let mut fpga_power = PinDriver::output(pin_fpga_power)?;
         fpga_power.set_high()?;
@@ -545,19 +561,6 @@ impl Device<'_> {
 
         // Mount system_data to /system
         drivers::fs::mount_system_data().context("mount system data")?;
-
-        // Mount sdcard to /sdcard
-        let sdcard = drivers::sdcard::mount_sdcard(
-            "/sdcard",
-            pin_sdio_clk,
-            pin_sdio_cmd,
-            pin_sdio_d0,
-            pin_sdio_d1,
-            pin_sdio_d2,
-            pin_sdio_d3,
-            Some(pin_sd_detect),
-        )
-        .ok();
 
         let mut device = Device {
             fpga_power,
