@@ -42,7 +42,8 @@ export component CoresScreen inherits ScreenBase {
         }
         on-core-selected(i) => {
             Backend.core-selected-index = i;
-            Backend.core-subscreen = CoreSubscreen.Detail;
+            Backend.core-run(cores[selected-core].core-id);
+            // Backend.core-subscreen = CoreSubscreen.Detail;
         }
     }
 
@@ -59,6 +60,7 @@ export component CoresScreen inherits ScreenBase {
         core-author: cores[selected-core].core-author;
 
         on-cancel => {
+            // Backend.core-subscreen = CoreSubscreen.Detail;
             Backend.core-subscreen = CoreSubscreen.List;
         }
         on-run => {
@@ -75,7 +77,7 @@ export component CoresScreen inherits ScreenBase {
             self.focus();
         }
         on-cancel => {
-            Backend.core-subscreen = CoreSubscreen.Detail;
+            Backend.core-subscreen = CoreSubscreen.List;
             Backend.core-file-select-cancel();
         }
     }
@@ -91,7 +93,8 @@ export component CoresScreen inherits ScreenBase {
         }
         on-confirm => {
             Backend.core-error = "";
-            Backend.core-subscreen = CoreSubscreen.Detail;
+            // Backend.core-subscreen = CoreSubscreen.Detail;
+            Backend.core-subscreen = CoreSubscreen.List;
             Backend.core-file-select-cancel();
         }
     }
