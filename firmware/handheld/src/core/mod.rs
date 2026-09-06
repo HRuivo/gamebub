@@ -30,6 +30,10 @@ mod settings;
 static CORE_MANAGER: LazyLock<Mutex<CoreManager>> =
     LazyLock::new(|| Mutex::new(CoreManager::new()));
 
+/// Maximum number of files to show at once.
+/// TODO: save memory and increase this limit (or avoid altogether)
+const FILE_LIST_MAX: usize = 100;
+
 const PROGRESS_UPDATE_INTERVAL: Duration = Duration::from_millis(250);
 const NOTIFY_TIMEOUT: Duration = Duration::from_millis(10);
 const SETUP_TIMEOUT: Duration = Duration::from_millis(100);
@@ -782,7 +786,13 @@ impl CoreManager {
                 Vec::new()
             }
         };
-        ui::send(ui::Message::CoreFileSelectList(files))
+        let truncated = files.len() >= FILE_LIST_MAX;
+        ui::send(ui::Message::CoreFileSelectList(files));
+        if truncated {
+            let message =
+                format!("More than {FILE_LIST_MAX} items in directory:\nsome items will be hidden");
+            ui::send(ui::Message::CoreFileSelectError(message));
+        }
     }
 
     /// Get the list of eligible files for the file select menu at the given directory
@@ -807,8 +817,10 @@ impl CoreManager {
                 if kind.is_file() && !extensions.iter().any(|&e| name.ends_with(e.as_str())) {
                     return None;
                 }
+
                 Some((name.to_string(), kind))
             })
+            .take(FILE_LIST_MAX)
             .collect::<Vec<_>>();
         files.sort_unstable_by(|f1, f2| {
             // Sort by name, with directories first.

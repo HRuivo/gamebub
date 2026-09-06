@@ -43,7 +43,7 @@ component FileListItem {
         x: 12px;
         // Limit the maximum width of text to save memory with many long filenames.
         // TODO: figure out if this is a Slint bug, or if it can be optimized another way.
-        width: min(270px, parent.width - self.x);
+        width: min(250px, parent.width - self.x);
         text: entry.name;
         vertical-alignment: center;
         horizontal-alignment: left;
