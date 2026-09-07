@@ -137,6 +137,8 @@ class HandheldGba extends Module with Core {
   val regCoreSetup = RegInit(false.B)
   val regCoreReset = RegInit(true.B)
   val regCoreFocus = RegInit(false.B)
+  val regCoreResetOnce = RegInit(false.B)
+  regCoreResetOnce := false.B
 
   val configRegEmuCart = RegInit(0.U.asTypeOf(new EmulatedCartridge.Config))
   val configRegRomSize = RegInit(0.U(25.W))
@@ -222,6 +224,8 @@ class HandheldGba extends Module with Core {
 
         0x1000 -> RegisterMap.Entry.rw(statRegStalls),
         0x1004 -> RegisterMap.Entry.rw(statRegCycles),
+
+        0x2000 -> RegisterMap.Entry.w(regCoreResetOnce),
       )
     )
   }
@@ -290,7 +294,7 @@ class HandheldGba extends Module with Core {
 
   // Gameboy
   val gba = Module(new GBA)
-  when (regCoreReset) {
+  when (regCoreReset || regCoreResetOnce) {
     gba.reset := true.B
   }
   val doStall = WireDefault(false.B)
@@ -311,7 +315,7 @@ class HandheldGba extends Module with Core {
 
   // Emulated cartridge
   val emuCart = Module(new EmulatedCartridge)
-  when (regCoreReset) {
+  when (regCoreReset || regCoreResetOnce) {
     emuCart.reset := true.B
   }
   emuCart.io.interfaceEnable := gba.io.enable

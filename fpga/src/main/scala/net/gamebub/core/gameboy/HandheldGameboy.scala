@@ -89,6 +89,8 @@ class HandheldGameboy extends Module with Core {
   val regCoreSetup = RegInit(false.B)
   val regCoreReset = RegInit(true.B)
   val regCoreFocus = RegInit(false.B)
+  val regCoreResetOnce = RegInit(false.B)
+  regCoreResetOnce := false.B
 
   // Config
   val configRegSystem = RegInit(0.U.asTypeOf(new HandheldGameboy.Config))
@@ -178,6 +180,8 @@ class HandheldGameboy extends Module with Core {
 
         0x1000 -> RegisterMap.Entry.rw(statRegStalls),
         0x1004 -> RegisterMap.Entry.rw(statRegCycles),
+
+        0x2000 -> RegisterMap.Entry.w(regCoreResetOnce),
       )
     )
   }
@@ -245,7 +249,7 @@ class HandheldGameboy extends Module with Core {
     optimizeForSimulation = false,
   )
   val gameboy = Module(new Gameboy(gameboyConfig))
-  when (regCoreReset) {
+  when (regCoreReset || regCoreResetOnce) {
     gameboy.reset := true.B
   }
   gameboy.io.isCgb := configRegSystem.isCgb
@@ -361,7 +365,7 @@ class HandheldGameboy extends Module with Core {
 
   // Emulated Cartridge
   val emuCart = Module(new EmuCartridge(8 * 1024 * 1024))
-  when (regCoreReset) {
+  when (regCoreReset || regCoreResetOnce) {
     emuCart.reset := true.B
   }
   emuCart.io.config := configRegEmuCart
