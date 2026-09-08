@@ -96,12 +96,6 @@ class ILI9806E(
             currentFrame := io.lastRenderedFrame
         }
 
-        // ILI9806E: don't interrupt V-active period:
-        // when (!regLocked && newFrameReady) {
-        //     // Immediately display new frame (interrupting current frame)
-        //     regLocked := true.B
-        //     startFrame := true.B
-        // } .else
         when (y === (vSync - 1).U) {
             regVsync := false.B
         } .elsewhen ((y >= (totalHeightMin - 1).U) && newFrameReady) {
@@ -114,6 +108,7 @@ class ILI9806E(
                 // New frame available, start rendering.
                 startFrame := true.B
                 regResyncWait := false.B
+                regLocked := true.B
             }
         } .elsewhen (regResyncWait) {
             // We expect to get the next frame soon, so we're waiting longer than usual.
@@ -123,6 +118,9 @@ class ILI9806E(
                 startFrame := true.B
                 regResyncWait := false.B
             }
+        } .elsewhen (!regLocked && (y >= (totalHeightMin - 1).U)) {
+            // Not locked, just refresh at the normal rate.
+            startFrame := true.B
         } .elsewhen (y === (totalHeightMax - 1).U) {
             // Hit the maximum allowed total height without a new frame coming in:
             // source is too slow, switch to rapid refresh (no longer locked)
