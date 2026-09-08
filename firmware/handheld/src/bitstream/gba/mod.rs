@@ -447,10 +447,12 @@ impl CoreHandler for Gba {
         }
 
         // Warn if using built-in GBA bios
-        if !Path::new("/sdcard/system/gba.bios.bin").is_file() {
-            ui::send(ui::Message::Notification(ui::Notification::new_long(
-                "No GBA BIOS provided:\nsome games may have bugs\n(see User Guide)".into(),
-            )));
+        if kvs::keys::GBA_BIOS_WARNING.get().unwrap_or(true) {
+            if !Path::new("/sdcard/system/gba.bios.bin").is_file() {
+                ui::send(ui::Message::Notification(ui::Notification::new_long(
+                    "No GBA BIOS provided:\nsome games may have bugs\n(see User Guide)".into(),
+                )));
+            }
         }
 
         Ok(())

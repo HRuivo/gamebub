@@ -119,6 +119,10 @@ mod settings {
                 name: "Enable Game Boy Player",
                 key: &keys::GBA_ENABLE_GBP,
             },
+            Entry::Checkbox {
+                name: "Warn about missing BIOS",
+                key: &keys::GBA_BIOS_WARNING,
+            },
         ],
     };
 }
