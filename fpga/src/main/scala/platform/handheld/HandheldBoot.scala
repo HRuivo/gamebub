@@ -26,7 +26,9 @@ class HandheldBoot extends Module with Core {
         val video = new VideoV0(
             videoWidth = 240,
             videoHeight = 160,
-            colorDepth = 5,
+            colorDepthR = 5,
+            colorDepthG = 5,
+            colorDepthB = 5,
             framePeriod = 1.0 / 60.0,
         )
         val host = new HostV0()

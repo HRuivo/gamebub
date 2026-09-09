@@ -206,7 +206,9 @@ class HandheldTop[T <: Core](coreFactory: () => T, revision: Revision) extends M
     videoWidth: Int,
     videoHeight: Int,
     videoFramePeriod: Double,
-    videoColorDepth: Int,
+    videoColorDepthR: Int,
+    videoColorDepthG: Int,
+    videoColorDepthB: Int,
   ) = core.getInterface("video") match {
     case Some(video: VideoV0) => {
       coreVideo.dataR := video.data.r
@@ -219,7 +221,9 @@ class HandheldTop[T <: Core](coreFactory: () => T, revision: Revision) extends M
         video.videoWidth,
         video.videoHeight,
         video.framePeriod,
-        video.colorDepth,
+        video.colorDepthR,
+        video.colorDepthG,
+        video.colorDepthB,
       )
     }
     case Some(x) => throw new CoreException("Unknown 'video': " + x.getClass())
@@ -227,7 +231,7 @@ class HandheldTop[T <: Core](coreFactory: () => T, revision: Revision) extends M
   }
 
   // Video filter
-  val videoFilterIn = Wire(ColorRGB(videoColorDepth))
+  val videoFilterIn = Wire(ColorRGB(videoColorDepthR, videoColorDepthG, videoColorDepthB))
   val videoFilterOut = Wire(ColorRGB(8))
   val videoFilterReset = Wire(Reset())
   val (
@@ -433,7 +437,7 @@ class HandheldTop[T <: Core](coreFactory: () => T, revision: Revision) extends M
       // Video dimensions
       0x0100 -> RegisterMap.Entry.r(Cat(videoWidth.U(16.W), videoHeight.U(16.W))),
       // Video color depth
-      0x0104 -> RegisterMap.Entry.r(videoColorDepth.U),
+      0x0104 -> RegisterMap.Entry.r(Cat(videoColorDepthR.U(8.W), videoColorDepthG.U(8.W), videoColorDepthB.U(8.W))),
 
       // Framework control
       0x1000 -> RegisterMap.Entry.rw(controlInterruptEnable),
@@ -524,7 +528,7 @@ class HandheldTop[T <: Core](coreFactory: () => T, revision: Revision) extends M
   // Double buffering
   val framebuffers = (0 until 2).map(_ =>
     SRAM(
-      videoWidth * videoHeight, UInt((videoColorDepth * 3).W),
+      videoWidth * videoHeight, UInt((videoColorDepthR + videoColorDepthG + videoColorDepthB).W),
       readPortClocks = Seq(io.clock_av), writePortClocks = Seq(), readwritePortClocks = Seq(clock)
     )
   )
@@ -570,7 +574,7 @@ class HandheldTop[T <: Core](coreFactory: () => T, revision: Revision) extends M
     }
     val framebufferRead = MuxLookup(framebufferIndex, 0.U)(
       (0 until 2).map(i => i.U -> RegNext(RegNext(framebuffers(i).readPorts(0).data)))
-    ).asTypeOf(ColorRGB(videoColorDepth))
+    ).asTypeOf(ColorRGB(videoColorDepthR, videoColorDepthG, videoColorDepthB))
 
     // Apply core video filter
     videoFilterIn := framebufferRead
@@ -840,7 +844,7 @@ class HandheldTop[T <: Core](coreFactory: () => T, revision: Revision) extends M
       // Core framebuffer write and SPI framebuffer read share the same read/write port,
       // so ensure that they're not activated at the same time (so they can be inferred correctly).
       val address = (framebufferY * videoWidth.U(10.W)) + framebufferX
-      val data = Wire(ColorRGB(videoColorDepth))
+      val data = Wire(ColorRGB(videoColorDepthR, videoColorDepthG, videoColorDepthB))
       data.r := coreVideo.dataR
       data.g := coreVideo.dataG
       data.b := coreVideo.dataB

@@ -37,10 +37,17 @@ class HandheldGameboy extends Module with Core {
     val video = new VideoV0(
       videoWidth = 160,
       videoHeight = 144,
-      colorDepth = 5,
+      colorDepthR = 5,
+      colorDepthG = 5,
+      colorDepthB = 5,
       framePeriod = (456 * 154).toDouble / (4 * 1024 * 1024),
     )
-    val videoFilter = new VideoFilterBasicV0(colorInDepth = 5, latency = 3)
+    val videoFilter = new VideoFilterBasicV0(
+      colorInDepthR = 5,
+      colorInDepthG = 5,
+      colorInDepthB = 5,
+      latency = 3,
+    )
     val audio = new AudioV0()
     val host = new HostV0()
     val pmod = new PmodV0()

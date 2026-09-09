@@ -9,12 +9,16 @@ class VideoV0(
   val videoWidth: Int,
   /// Height of the video output, in pixels
   val videoHeight: Int,
-  /// Bits per each R, G, B color channel
-  val colorDepth: Int,
+  /// Bits per pixel for the R channel.
+  val colorDepthR: Int,
+  /// Bits per pixel for the G channel.
+  val colorDepthG: Int,
+  /// Bits per pixel for the B channel.
+  val colorDepthB: Int,
   /// Target frame period, in seconds.
   val framePeriod: Double,
 ) extends Bundle {
-  val data = Output(ColorRGB.apply(colorDepth))
+  val data = Output(ColorRGB.apply(colorDepthR, colorDepthG, colorDepthB))
   val dataEnable = Output(Bool())
   val vblank = Output(Bool())
   val hblank = Output(Bool())
