@@ -58,9 +58,25 @@ class ILI9806E(
     assert(totalWidthMin * totalHeightMin / sourceFramePeriod < clockHz)
     assert(totalWidthMin * totalHeightMax / sourceFramePeriod > clockHz)
 
+    // If the real clocks per frame is too high, the frame rate will be too low
+    // It's easy to extend clocks per frame by extending vertical period
+    // So make target clocks per frame slightly *lower* than what we need
+    // (by taking the floor)
+    val totalWidth = ((sourceFramePeriod * clockHz) / totalHeightMin).floor.toInt
+
     val hSync = 4
-    val hBackPorch = 10
-    val totalWidth = totalWidthMin
+    val hFrontPorchMin = 2
+    val hBackPorchMin = 2  // should be 10+ though
+    val hBackPorchMax = 126
+
+    var hFrontPorch = hFrontPorchMin
+    var hBackPorch = (totalWidth - hActive - hSync - hFrontPorchMin)
+    if (hBackPorch > hBackPorchMax) {
+        val amount = hBackPorchMax - hBackPorch
+        hBackPorch -= amount
+        hFrontPorch += amount
+    }
+    assert(totalWidth >= totalWidthMin)
 
     val x = RegInit(0.U(log2Ceil(totalWidth).W))
     val y = RegInit(0.U(log2Ceil(totalHeightMax).W))
