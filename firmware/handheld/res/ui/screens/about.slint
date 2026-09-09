@@ -71,11 +71,17 @@ export component AboutScreen inherits ScreenBase {
         }
 
         key-pressed(event) => {
+            if (event.text == "b") {
+                Global.set-screen(ScreenId.Settings);
+                accept
+            } else {
+                reject
+            }
+        }
+
+        key-released(event) => {
             if event.text == "Home" && !Global.home-consumed {
                 Global.set-screen(ScreenId.MainMenu);
-                accept
-            } else if (event.text == "b") {
-                Global.set-screen(ScreenId.Settings);
                 accept
             } else {
                 reject

@@ -18,7 +18,13 @@ export component SettingsScreen inherits ScreenBase {
                     Global.set-screen(ScreenId.MainMenu);
                 }
                 accept
-            } else if event.text == "Home" && !Global.home-consumed {
+            } else {
+                reject
+            }
+        }
+
+        key-released(event) => {
+            if event.text == "Home" && !Global.home-consumed {
                 Global.set-screen(ScreenId.MainMenu);
                 accept
             } else {

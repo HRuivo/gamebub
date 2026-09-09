@@ -67,11 +67,13 @@ export component ToolsScreen inherits ScreenBase {
                     Backend.tools-start-usb-drive();
                 }
             }
-            key-pressed(event) => {
-                if (event.text == "Home") {
+            key-released(event) => {
+                if event.text == "Home" && !Global.home-consumed {
                     Backend.tools-end-usb-drive();
+                    accept
+                } else {
+                    reject
                 }
-                accept
             }
 
             if Backend.sdcard-mounted: Text {
@@ -97,11 +99,13 @@ export component ToolsScreen inherits ScreenBase {
                 self.focus();
                 Backend.tools-start-cart-reader();
             }
-            key-pressed(event) => {
-                if (event.text == "Home") {
+            key-released(event) => {
+                if event.text == "Home" && !Global.home-consumed {
                     Backend.tools-end-cart-reader();
+                    accept
+                } else {
+                    reject
                 }
-                accept
             }
             Text {
                 horizontal-alignment: center;
