@@ -3,9 +3,15 @@ use std::process::Command;
 fn main() {
     embuild::espidf::sysenv::output();
 
+    // The default "fluent" style's ListView animations are miscompiled by the
+    // Xtensa LLVM backend. Use "cosmic" by default, while allowing developers
+    // to select another style explicitly through SLINT_STYLE.
+    let style = std::env::var("SLINT_STYLE").unwrap_or_else(|_| "cosmic".to_string());
+    println!("cargo:rerun-if-env-changed=SLINT_STYLE");
     slint_build::compile_with_config(
         "res/ui/main.slint",
         slint_build::CompilerConfiguration::new()
+            .with_style(style)
             .embed_resources(slint_build::EmbedResourcesKind::EmbedForSoftwareRenderer),
     )
     .unwrap();

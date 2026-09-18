@@ -30,6 +30,8 @@ Check out the [announcement blog post](https://eli.lipsitz.net/posts/introducing
 
 Building a Game Bub handheld requires manufacturing PCBs, 3D printing the shell and buttons, and assembling components from a variety of sources. For information on manufacturing and assembling your own, see [here](https://github.com/elipsitz/gamebub/blob/v0.1/docs/building.md). Note that this information is for the older, vertical revision 2. Updated building information will be available in the Game Bub Docs soon.
 
+For developer builds, see the repository guides for [building the ESP32-S3 firmware](docs/firmware.md) and [building the FPGA bitstreams](docs/fpga.md).
+
 For other inquiries, contact us at support@gamebub.net.
 
 ## Architecture

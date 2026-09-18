@@ -6,6 +6,7 @@
 /fpga/.bsp
 /fpga/out
 /fpga/build
+/fpga/.venv/
 /fpga/sim/main
 /fpga/sim/obj_pc
 /fpga/test/sim_build
@@ -356,3 +357,6 @@ project/plugins/project/
 # virtual machine crash logs, see http://www.java.com/en/download/help/error_hotspot.xml
 hs_err_pid*
 
+docs/
+debug-artifacts/
+system-data/

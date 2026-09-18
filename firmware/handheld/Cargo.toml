@@ -1,7 +1,7 @@
 [package]
 name = "handheld"
-version = "1.0.2"
-authors = ["Eli Lipsitz <eli.lipsitz@gmail.com>"]
+version = "1.0.2-custom.5"
+authors = ["Eli Lipsitz <eli.lipsitz@gmail.com>", "Hugo Ruivo <hugoruivo89@gmail.com>"]
 edition = "2021"
 resolver = "2"
 rust-version = "1.93"
