@@ -62,6 +62,10 @@ mod settings {
                 name: "Core: GBA",
                 page: &PAGE_CORE_GBA,
             },
+            Entry::Screen {
+                name: "Diagnostics",
+                screen: ScreenId::Diagnostics,
+            },
         ],
     };
 

@@ -360,3 +360,5 @@ hs_err_pid*
 docs/
 debug-artifacts/
 system-data/
+
+*.jou

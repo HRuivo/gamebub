@@ -1,0 +1,49 @@
+import { Global, ScreenId, Backend } from "../common.slint";
+import { ScreenBase } from "../components/screen.slint";
+import { ControlHint } from "../components/control_hint.slint";
+
+export component DiagnosticsScreen inherits ScreenBase {
+    title: "Diagnostics";
+    forward-focus: focus-scope;
+
+    focus-scope := FocusScope {
+        init => {
+            self.focus();
+        }
+
+        key-pressed(event) => {
+            if event.text == "b" && !event.repeat {
+                Global.set-screen(ScreenId.MainMenu);
+                accept
+            } else {
+                reject
+            }
+        }
+
+        key-released(event) => {
+            if event.text == "Home" && !Global.home-consumed {
+                Global.set-screen(ScreenId.MainMenu);
+                accept
+            } else {
+                reject
+            }
+        }
+
+        VerticalLayout {
+            Text {
+                text: "Diagnostics";
+                horizontal-alignment: center;
+            }
+
+            Text {
+                text: "Battery: \{Backend.battery-level}%";
+            }
+        }
+
+        ControlHint {
+            label: "Back";
+            button: "b";
+            y: parent.height - self.height;
+        }
+    }
+}
