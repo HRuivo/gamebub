@@ -124,6 +124,9 @@ pub struct UI {
     state: Rc<RefCell<UiState>>,
     button_event_detector: buttons::ButtonEventDetector,
     idle_timer: Timer,
+    fps_sample_started: Instant,
+    fps_rendered_frames: u32,
+    fps_sampling: bool,
 }
 
 impl UI {
@@ -171,6 +174,15 @@ impl UI {
 
         let root = slint::MainWindow::new().unwrap();
 
+        // Diagnostics drives this callback from a 16 ms timer. Requesting a
+        // redraw here makes the reported value the actual UI render rate,
+        // rather than merely the Slint timer callback rate.
+        {
+            let window = window.clone();
+            root.global::<slint::Backend>()
+                .on_diagnostics_refresh(move || window.request_redraw());
+        }
+
         let ui = UI {
             framebuffer,
             lcd_line_buffer,
@@ -180,6 +192,9 @@ impl UI {
             root,
             button_event_detector: buttons::ButtonEventDetector::new(),
             idle_timer,
+            fps_sample_started: Instant::now(),
+            fps_rendered_frames: 0,
+            fps_sampling: false,
         };
         ui
     }
@@ -203,7 +218,7 @@ impl UI {
             ::slint::platform::update_timers_and_animations();
 
             // Render UI if needed.
-            self.window.draw_if_needed(|renderer| {
+            let rendered = self.window.draw_if_needed(|renderer| {
                 let mut device = Device::lock();
 
                 let render_start = Instant::now();
@@ -224,6 +239,32 @@ impl UI {
                     self.window.request_redraw();
                 }
             });
+
+            if rendered {
+                let diagnostics_active = self.root.global::<slint::Global>().get_current_screen()
+                    == slint::ScreenId::Diagnostics;
+
+                if diagnostics_active {
+                    if !self.fps_sampling {
+                        self.fps_sampling = true;
+                        self.fps_sample_started = Instant::now();
+                        self.fps_rendered_frames = 0;
+                        self.root.global::<slint::Backend>().set_ui_fps(0);
+                    }
+
+                    self.fps_rendered_frames += 1;
+                    let elapsed = self.fps_sample_started.elapsed();
+                    if elapsed >= Duration::from_secs(1) {
+                        let fps = (self.fps_rendered_frames as f64 / elapsed.as_secs_f64()).round()
+                            as i32;
+                        self.root.global::<slint::Backend>().set_ui_fps(fps);
+                        self.fps_sample_started = Instant::now();
+                        self.fps_rendered_frames = 0;
+                    }
+                } else {
+                    self.fps_sampling = false;
+                }
+            }
 
             // Trigger a timer to wake us up for button repeat events.
             if let Some(wakeup) = self.button_event_detector.next_wakeup_time() {

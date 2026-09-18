@@ -70,6 +70,7 @@ export global Backend {
     in property <int> brightness-increment: 5;
 
     in property <int> battery-level: 11;
+    in property <int> ui-fps: 0;
 
     in property <string> error-text: "";
 
@@ -125,6 +126,7 @@ export global Backend {
     callback tools-start-cart-reader();
     callback tools-end-cart-reader();
     callback tools-get-battery-info() -> BatteryInfo;
+    callback diagnostics-refresh();
     callback core-list-fetch();
     callback core-run(string);
     callback core-file-select-selected(int);

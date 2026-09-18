@@ -13,7 +13,7 @@ export component DiagnosticsScreen inherits ScreenBase {
 
         key-pressed(event) => {
             if event.text == "b" && !event.repeat {
-                Global.set-screen(ScreenId.MainMenu);
+                Global.set-screen(ScreenId.Settings);
                 accept
             } else {
                 reject
@@ -37,6 +37,20 @@ export component DiagnosticsScreen inherits ScreenBase {
 
             Text {
                 text: "Battery: \{Backend.battery-level}%";
+            }
+
+            Text {
+                text: "UI FPS: \{Backend.ui-fps}";
+            }
+        }
+
+        // Keep the diagnostics screen rendering so Rust can measure the
+        // effective Slint render rate. This timer only exists while this
+        // screen is active.
+        Timer {
+            interval: 16ms;
+            triggered => {
+                Backend.diagnostics-refresh();
             }
         }
 
