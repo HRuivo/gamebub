@@ -272,6 +272,7 @@ impl Gba {
             ]
             .into_iter()
             .collect(),
+            settings: Vec::new(),
             bitstream: crate::util::get_system_file_path("gba.bit.hs"),
         }
     }

@@ -197,6 +197,7 @@ impl Gameboy {
             ]
             .into_iter()
             .collect(),
+            settings: Vec::new(),
             bitstream: crate::util::get_system_file_path("gameboy.bit.hs"),
         }
     }

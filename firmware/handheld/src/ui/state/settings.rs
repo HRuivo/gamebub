@@ -12,136 +12,189 @@ use time::OffsetDateTime;
 use super::UiState;
 
 mod settings {
+    use std::{cell::Cell, rc::Rc};
+
+    use crate::core;
     use crate::kvs::{keys, KvsKey};
     use crate::ui::state::ScreenId;
 
     pub struct Page {
-        pub name: &'static str,
-        pub entries: &'static [Entry],
+        pub name: String,
+        pub entries: Vec<Entry>,
     }
 
     pub enum Entry {
         Checkbox {
-            name: &'static str,
+            name: String,
             key: &'static KvsKey<bool>,
         },
         List {
-            name: &'static str,
+            name: String,
             key: &'static KvsKey<i32>,
-            choices: &'static [&'static str],
+            choices: Vec<String>,
+        },
+        CoreList {
+            name: String,
+            core_id: String,
+            setting_id: u16,
+            choices: Vec<String>,
+            selected: Cell<i32>,
         },
         SystemDatetime {
-            name: &'static str,
+            name: String,
         },
         Subpage {
-            name: &'static str,
-            page: &'static Page,
+            name: String,
+            page: Rc<Page>,
         },
         Screen {
-            name: &'static str,
+            name: String,
             screen: ScreenId,
         },
     }
 
-    pub static PAGE_ROOT: Page = Page {
-        name: "",
-        entries: &[
+    fn general_page() -> Rc<Page> {
+        Rc::new(Page {
+            name: "General".to_string(),
+            entries: vec![
+                Entry::SystemDatetime {
+                    name: "Date and Time (UTC)".to_string(),
+                },
+                Entry::List {
+                    name: "Startup Action".to_string(),
+                    key: &keys::STARTUP_ACTION,
+                    choices: vec!["Main Menu".to_string(), "Run Cartridge".to_string()],
+                },
+            ],
+        })
+    }
+
+    fn core_gb_page() -> Rc<Page> {
+        Rc::new(Page {
+            name: "Core: GB / GBC".to_string(),
+            entries: vec![
+                Entry::Checkbox {
+                    name: "Enable GB mode".to_string(),
+                    key: &keys::GB_IS_DMG,
+                },
+                Entry::List {
+                    name: "GBC Color Corrections".to_string(),
+                    key: &keys::CGB_COLOR_PROFILE,
+                    choices: ["None", "GBC", "GBA", "GBA SP"]
+                        .into_iter()
+                        .map(str::to_string)
+                        .collect(),
+                },
+                Entry::List {
+                    name: "GB Color Palette".to_string(),
+                    key: &keys::DMG_COLOR_PALETTE,
+                    choices: ["Grayscale", "DMG Green", "GB Pocket"]
+                        .into_iter()
+                        .map(str::to_string)
+                        .collect(),
+                },
+            ],
+        })
+    }
+
+    fn core_gba_page() -> Rc<Page> {
+        Rc::new(Page {
+            name: "Core: GBA".to_string(),
+            entries: vec![
+                Entry::List {
+                    name: "Color Corrections".to_string(),
+                    key: &keys::GBA_COLOR_PROFILE,
+                    choices: ["None", "GBA", "GBA SP", "NDS", "NDS Lite", "NSO GBA"]
+                        .into_iter()
+                        .map(str::to_string)
+                        .collect(),
+                },
+                Entry::Checkbox {
+                    name: "Enable Game Boy Player".to_string(),
+                    key: &keys::GBA_ENABLE_GBP,
+                },
+                Entry::Checkbox {
+                    name: "Warn about missing BIOS".to_string(),
+                    key: &keys::GBA_BIOS_WARNING,
+                },
+            ],
+        })
+    }
+
+    pub fn empty_page() -> Rc<Page> {
+        Rc::new(Page {
+            name: String::new(),
+            entries: Vec::new(),
+        })
+    }
+
+    pub fn root_page() -> Rc<Page> {
+        let general = general_page();
+        let core_gb = core_gb_page();
+        let core_gba = core_gba_page();
+        let mut entries = vec![
             Entry::Screen {
-                name: "About",
+                name: "About".to_string(),
                 screen: ScreenId::About,
             },
             Entry::Subpage {
-                name: "General",
-                page: &PAGE_GENERAL,
+                name: general.name.clone(),
+                page: general,
             },
             Entry::Subpage {
-                name: "Core: GB / GBC",
-                page: &PAGE_CORE_GB,
+                name: core_gb.name.clone(),
+                page: core_gb,
             },
             Entry::Subpage {
-                name: "Core: GBA",
-                page: &PAGE_CORE_GBA,
+                name: core_gba.name.clone(),
+                page: core_gba,
             },
-            Entry::Screen {
-                name: "Diagnostics",
-                screen: ScreenId::Diagnostics,
-            },
-        ],
-    };
+        ];
 
-    pub static PAGE_GENERAL: Page = Page {
-        name: "General",
-        entries: &[
-            Entry::SystemDatetime {
-                name: "Date and Time (UTC)",
-            },
-            Entry::List {
-                name: "Startup Action",
-                key: &keys::STARTUP_ACTION,
-                choices: &["Main Menu", "Run Cartridge"],
-            },
-        ],
-    };
+        for core in core::configurable_cores() {
+            let page_name = format!("Core: {}", core.name);
+            let page = Rc::new(Page {
+                name: page_name.clone(),
+                entries: core
+                    .settings
+                    .into_iter()
+                    .map(|setting| Entry::CoreList {
+                        name: setting.label,
+                        core_id: core.id.clone(),
+                        setting_id: setting.id,
+                        choices: setting.choices,
+                        selected: Cell::new(setting.selected as i32),
+                    })
+                    .collect(),
+            });
+            entries.push(Entry::Subpage {
+                name: page_name,
+                page,
+            });
+        }
 
-    pub static PAGE_CORE_GB: Page = Page {
-        name: "Core: GB / GBC",
-        entries: &[
-            Entry::Checkbox {
-                name: "Enable GB mode",
-                key: &keys::GB_IS_DMG,
-            },
-            // Entry::Checkbox {
-            //     name: "Skip Boot Animation",
-            //     key: &keys::GB_SKIP_BOOT_ANIM,
-            // },
-            Entry::List {
-                name: "GBC Color Corrections",
-                key: &keys::CGB_COLOR_PROFILE,
-                choices: &["None", "GBC", "GBA", "GBA SP"],
-            },
-            Entry::List {
-                name: "GB Color Palette",
-                key: &keys::DMG_COLOR_PALETTE,
-                choices: &["Grayscale", "DMG Green", "GB Pocket"],
-            },
-        ],
-    };
-
-    pub static PAGE_CORE_GBA: Page = Page {
-        name: "Core: GBA",
-        entries: &[
-            // Entry::Checkbox {
-            //     name: "Skip Boot Animation",
-            //     key: &keys::GBA_SKIP_BOOT_ANIM,
-            // },
-            Entry::List {
-                name: "Color Corrections",
-                key: &keys::GBA_COLOR_PROFILE,
-                choices: &["None", "GBA", "GBA SP", "NDS", "NDS Lite", "NSO GBA"],
-            },
-            Entry::Checkbox {
-                name: "Enable Game Boy Player",
-                key: &keys::GBA_ENABLE_GBP,
-            },
-            Entry::Checkbox {
-                name: "Warn about missing BIOS",
-                key: &keys::GBA_BIOS_WARNING,
-            },
-        ],
-    };
+        entries.push(Entry::Screen {
+            name: "Diagnostics".to_string(),
+            screen: ScreenId::Diagnostics,
+        });
+        Rc::new(Page {
+            name: String::new(),
+            entries,
+        })
+    }
 }
 
 pub struct SettingsState {
     model: Option<Rc<SettingsModel>>,
-    page: &'static Page,
-    stack: Vec<(&'static Page, usize)>,
+    page: Rc<Page>,
+    stack: Vec<(Rc<Page>, usize)>,
 }
 
 impl Default for SettingsState {
     fn default() -> Self {
         Self {
             model: None,
-            page: &settings::PAGE_ROOT,
+            page: settings::empty_page(),
             stack: Vec::new(),
         }
     }
@@ -164,7 +217,7 @@ impl UiState {
             match action {
                 SettingsAction::None => {}
                 SettingsAction::Subpage(page) => {
-                    let entry = (state.settings.page, i as usize);
+                    let entry = (state.settings.page.clone(), i as usize);
                     state.settings.stack.push(entry);
                     state.set_settings_page(page, 0);
                 }
@@ -193,12 +246,12 @@ impl UiState {
         })
     }
 
-    fn set_settings_page(&mut self, page: &'static Page, selected_item: usize) {
+    fn set_settings_page(&mut self, page: Rc<Page>, selected_item: usize) {
         let root = self.root.unwrap();
         let backend = root.global::<Backend>();
-        let model = Rc::new(SettingsModel::new(page));
+        let model = Rc::new(SettingsModel::new(page.clone()));
         self.settings.model = Some(model.clone());
-        self.settings.page = page;
+        self.settings.page = page.clone();
         backend.set_settings(ModelRc::from(model));
         backend.set_settings_index(selected_item as i32);
 
@@ -206,19 +259,19 @@ impl UiState {
         let mut title = "Settings".to_shared_string();
         if !page.name.is_empty() {
             title.push_str(": ");
-            title.push_str(page.name);
+            title.push_str(&page.name);
         }
         root.invoke_set_title(title);
     }
 
     pub(super) fn on_settings_enter(&mut self) {
         self.settings.stack.clear();
-        self.set_settings_page(&settings::PAGE_ROOT, 0);
+        self.set_settings_page(settings::root_page(), 0);
     }
 }
 
 pub struct SettingsModel {
-    page: &'static settings::Page,
+    page: Rc<settings::Page>,
     notify: ModelNotify,
 }
 
@@ -233,7 +286,7 @@ impl Model for SettingsModel {
         let entry = self.page.entries.get(row)?;
         let row = match entry {
             settings::Entry::Checkbox { name, key } => SettingEntry {
-                name: (*name).into(),
+                name: name.into(),
                 r#type: SettingType::Checkbox,
                 value: SettingValue {
                     bool_value: key.get().unwrap(),
@@ -242,7 +295,7 @@ impl Model for SettingsModel {
                 ..Default::default()
             },
             settings::Entry::List { name, key, choices } => SettingEntry {
-                name: (*name).into(),
+                name: name.into(),
                 r#type: SettingType::List,
                 value: SettingValue {
                     int_value: key.get().unwrap(),
@@ -251,12 +304,31 @@ impl Model for SettingsModel {
                 choices: ModelRc::new(
                     choices
                         .iter()
-                        .map(|x| slint::SharedString::from(*x))
+                        .map(slint::SharedString::from)
+                        .collect::<slint::VecModel<_>>(),
+                ),
+            },
+            settings::Entry::CoreList {
+                name,
+                choices,
+                selected,
+                ..
+            } => SettingEntry {
+                name: name.into(),
+                r#type: SettingType::List,
+                value: SettingValue {
+                    int_value: selected.get(),
+                    ..SettingValue::default()
+                },
+                choices: ModelRc::new(
+                    choices
+                        .iter()
+                        .map(slint::SharedString::from)
                         .collect::<slint::VecModel<_>>(),
                 ),
             },
             settings::Entry::SystemDatetime { name } => SettingEntry {
-                name: (*name).into(),
+                name: name.into(),
                 r#type: SettingType::Datetime,
                 value: SettingValue {
                     datetime_value: {
@@ -275,12 +347,12 @@ impl Model for SettingsModel {
                 ..Default::default()
             },
             settings::Entry::Subpage { name, .. } => SettingEntry {
-                name: (*name).into(),
+                name: name.into(),
                 r#type: SettingType::Subpage,
                 ..Default::default()
             },
             settings::Entry::Screen { name, .. } => SettingEntry {
-                name: (*name).into(),
+                name: name.into(),
                 r#type: SettingType::Subpage,
                 ..Default::default()
             },
@@ -299,7 +371,7 @@ impl Model for SettingsModel {
 }
 
 impl SettingsModel {
-    fn new(page: &'static settings::Page) -> Self {
+    fn new(page: Rc<settings::Page>) -> Self {
         SettingsModel {
             page,
             notify: ModelNotify::default(),
@@ -316,6 +388,24 @@ impl SettingsModel {
         match entry {
             settings::Entry::Checkbox { key, .. } => key.set(&value.bool_value),
             settings::Entry::List { key, .. } => key.set(&value.int_value),
+            settings::Entry::CoreList {
+                core_id,
+                setting_id,
+                choices,
+                selected,
+                ..
+            } => {
+                let choice = value.int_value;
+                if choice < 0 || choice as usize >= choices.len() {
+                    log::warn!("Invalid setting choice: {choice}");
+                } else if let Err(e) =
+                    crate::core::set_configurable_setting(core_id, *setting_id, choice as usize)
+                {
+                    log::error!("Failed to save core setting: {e}");
+                } else {
+                    selected.set(choice);
+                }
+            }
             settings::Entry::SystemDatetime { .. } => {
                 let dt = convert_settings_datetime(&value.datetime_value).unwrap();
                 let dt = dt.replace_second(0).unwrap();
@@ -323,7 +413,7 @@ impl SettingsModel {
                 Device::lock().set_datetime(dt);
             }
             settings::Entry::Subpage { page, .. } => {
-                return SettingsAction::Subpage(*page);
+                return SettingsAction::Subpage(page.clone());
             }
             settings::Entry::Screen { screen, .. } => {
                 return SettingsAction::Screen(*screen);
@@ -336,7 +426,7 @@ impl SettingsModel {
 
 enum SettingsAction {
     None,
-    Subpage(&'static Page),
+    Subpage(Rc<Page>),
     Screen(ScreenId),
 }
 

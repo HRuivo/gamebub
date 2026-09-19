@@ -1,6 +1,6 @@
 use std::{
     fs::File,
-    io::{BufReader, BufWriter, ErrorKind, Write},
+    io::{BufReader, BufWriter, Write},
     ops::DerefMut as _,
     path::{Path, PathBuf},
     sync::{LazyLock, Mutex, MutexGuard},
@@ -22,6 +22,7 @@ use crate::{
 pub use info::CoreFile;
 pub use info::CoreInfo;
 pub use info::CoreListEntry;
+pub use info::CoreSetting;
 use settings::CoreSettings;
 
 mod info;
@@ -62,6 +63,135 @@ mod command {
 pub const DIR_SDCARD: &str = "/sdcard/";
 pub const DIR_SETTINGS: &str = "/sdcard/settings/";
 pub const CORE_POLL_INTERVAL: Duration = Duration::from_millis(5);
+
+pub struct ConfigurableCore {
+    pub id: String,
+    pub name: String,
+    pub settings: Vec<ConfigurableSetting>,
+}
+
+pub struct ConfigurableSetting {
+    pub id: u16,
+    pub label: String,
+    pub choices: Vec<String>,
+    pub selected: usize,
+}
+
+/// Load the installed custom-core settings and their persisted values for UI display.
+pub fn configurable_cores() -> Vec<ConfigurableCore> {
+    info::list_configurable_cores()
+        .into_iter()
+        .map(|core| {
+            let values = CoreManager::load_settings(&core).unwrap_or_default();
+            let settings = core
+                .settings
+                .iter()
+                .map(|setting| {
+                    let value = setting_value(&values, setting);
+                    let selected = setting
+                        .items
+                        .iter()
+                        .position(|item| item.value == value)
+                        .unwrap_or(0);
+                    ConfigurableSetting {
+                        id: setting.id,
+                        label: setting.label.to_string(),
+                        choices: setting
+                            .items
+                            .iter()
+                            .map(|item| item.label.to_string())
+                            .collect(),
+                        selected,
+                    }
+                })
+                .collect();
+            ConfigurableCore {
+                id: core.id.to_string(),
+                name: core.name.to_string(),
+                settings,
+            }
+        })
+        .collect()
+}
+
+/// Persist a custom-core list setting selected in the UI.
+pub fn set_configurable_setting(
+    core_id: &str,
+    setting_id: u16,
+    selected: usize,
+) -> Result<(), String> {
+    let core = info::get_core(core_id)?;
+    let setting = core
+        .settings
+        .iter()
+        .find(|setting| setting.id == setting_id)
+        .ok_or_else(|| format!("Unknown setting {setting_id} for core {core_id}"))?;
+    let value = setting
+        .items
+        .get(selected)
+        .ok_or_else(|| format!("Invalid choice {selected} for setting {setting_id}"))?
+        .value;
+    let mut settings = CoreManager::load_settings(&core).unwrap_or_default();
+    settings.settings.insert(
+        setting_id.to_string(),
+        serde_json::Value::Number(value.into()),
+    );
+    persist_settings_for_core(&core, &settings).map_err(|e| e.to_string())?;
+
+    // This normally changes settings from the main menu. Also support a live
+    // update if a caller changes the active core in the future.
+    let mut manager = CoreManager::lock();
+    if manager
+        .core_info
+        .as_ref()
+        .is_some_and(|active| active.id.as_str() == core_id)
+    {
+        manager.core_settings = Some(settings);
+        Device::lock()
+            .fpga
+            .write_u32(setting.address, value)
+            .map_err(|e| e.to_string())?;
+    }
+    Ok(())
+}
+
+fn setting_value(settings: &CoreSettings, setting: &CoreSetting) -> u32 {
+    settings
+        .settings
+        .get(&setting.id.to_string())
+        .and_then(|value| value.as_u64())
+        .and_then(|value| u32::try_from(value).ok())
+        .filter(|value| setting.items.iter().any(|item| item.value == *value))
+        .unwrap_or(setting.default)
+}
+
+fn validate_settings(settings: &mut CoreSettings, core: &CoreInfo) {
+    settings.settings.retain(|key, value| {
+        let Some(setting) = key
+            .parse::<u16>()
+            .ok()
+            .and_then(|id| core.settings.iter().find(|setting| setting.id == id))
+        else {
+            return false;
+        };
+        value
+            .as_u64()
+            .and_then(|value| u32::try_from(value).ok())
+            .is_some_and(|value| setting.items.iter().any(|item| item.value == value))
+    });
+}
+
+fn persist_settings_for_core(
+    core: &CoreInfo,
+    settings: &CoreSettings,
+) -> Result<(), std::io::Error> {
+    if !std::fs::exists(DIR_SETTINGS)? {
+        std::fs::create_dir(DIR_SETTINGS)?;
+    }
+    let file = File::create(core.get_settings_path())?;
+    let writer = BufWriter::with_capacity(256, file);
+    serde_json::to_writer(writer, settings).map_err(std::io::Error::other)
+}
 
 pub struct CoreManager {
     stage: Stage,
@@ -238,8 +368,7 @@ impl CoreManager {
         settings
             .file_paths
             .retain(|(i, _)| core.files.iter().any(|f| f.id == *i && f.user_selected));
-        // TODO: validate non-path settings
-        settings.settings.clear();
+        validate_settings(&mut settings, core);
 
         Some(settings)
     }
@@ -470,6 +599,24 @@ impl CoreManager {
             core_handler
                 .on_before_run()
                 .map_err(|err| CoreError::Other(err))?;
+        }
+
+        // Apply metadata-defined settings while the core is halted for setup.
+        {
+            let core = self.core_info.as_ref().unwrap();
+            let settings = self.core_settings.as_ref().unwrap();
+            let mut device = Device::lock();
+            for setting in &core.settings {
+                device
+                    .fpga
+                    .write_u32(setting.address, setting_value(settings, setting))
+                    .map_err(|e| {
+                        CoreError::Other(format!(
+                            "Failed to apply setting '{}': {e}",
+                            setting.label
+                        ))
+                    })?;
+            }
         }
 
         // Tell the core we're finished setting up.
@@ -735,13 +882,7 @@ impl CoreManager {
         let core = self.core_info.as_ref().unwrap();
         let settings = self.core_settings.as_ref().unwrap();
 
-        if !std::fs::exists(DIR_SETTINGS)? {
-            std::fs::create_dir(DIR_SETTINGS)?;
-        }
-        let file = File::create(core.get_settings_path())?;
-        let writer = BufWriter::with_capacity(256, file);
-        serde_json::to_writer(writer, settings)
-            .map_err(|e| std::io::Error::new(ErrorKind::Other, e))
+        persist_settings_for_core(core, settings)
     }
 
     /// Called when a file has been selected for the core.

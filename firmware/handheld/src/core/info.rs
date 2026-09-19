@@ -1,6 +1,10 @@
 use arrayvec::{ArrayString, ArrayVec};
 use serde::Deserialize;
-use std::{fs::File, io::BufReader, path::PathBuf};
+use std::{
+    fs::File,
+    io::{BufReader, ErrorKind},
+    path::{Path, PathBuf},
+};
 
 use crate::device::drivers::fpga;
 
@@ -20,7 +24,45 @@ pub struct CoreInfo {
     pub name: ArrayString<32>,
     pub author: ArrayString<32>,
     pub files: ArrayVec<CoreFile, 8>,
+    pub settings: Vec<CoreSetting>,
     pub bitstream: PathBuf,
+}
+
+#[derive(Clone, Debug)]
+pub struct CoreSetting {
+    pub id: u16,
+    pub label: ArrayString<32>,
+    pub address: u32,
+    pub items: Vec<CoreSettingItem>,
+    pub default: u32,
+}
+
+#[derive(Clone, Debug)]
+pub struct CoreSettingItem {
+    pub label: ArrayString<32>,
+    pub value: u32,
+}
+
+#[derive(Deserialize)]
+struct JsonCoreSettings {
+    settings: Vec<JsonCoreSetting>,
+}
+
+#[derive(Deserialize)]
+struct JsonCoreSetting {
+    id: u16,
+    label: ArrayString<32>,
+    address: String,
+    #[serde(rename = "type")]
+    kind: String,
+    items: Vec<JsonCoreSettingItem>,
+    default: String,
+}
+
+#[derive(Deserialize)]
+struct JsonCoreSettingItem {
+    label: ArrayString<32>,
+    value: String,
 }
 
 #[allow(unused)]
@@ -70,6 +112,81 @@ impl CoreInfo {
         p.add_extension("json");
         p
     }
+}
+
+fn load_settings_metadata(core_dir: &Path) -> Result<Vec<CoreSetting>, String> {
+    let file = match File::open(core_dir.join("settings.json")) {
+        Ok(file) => file,
+        Err(e) if e.kind() == ErrorKind::NotFound => return Ok(Vec::new()),
+        Err(e) => return Err(format!("Failed to open settings.json: {e}")),
+    };
+    let reader = BufReader::with_capacity(256, file);
+    let json: JsonCoreSettings = serde_json::from_reader(reader)
+        .map_err(|e| format!("Failed to parse settings.json: {e}"))?;
+
+    json.settings
+        .into_iter()
+        .map(|setting| {
+            if setting.kind != "list" {
+                return Err(format!(
+                    "Unsupported setting type '{}' for setting {}",
+                    setting.kind, setting.id
+                ));
+            }
+            let items = setting
+                .items
+                .into_iter()
+                .map(|item| {
+                    Ok(CoreSettingItem {
+                        label: item.label,
+                        value: parse_u32(&item.value)?,
+                    })
+                })
+                .collect::<Result<Vec<_>, String>>()?;
+            if items.is_empty() {
+                return Err(format!("Setting {} has no list items", setting.id));
+            }
+            let default = parse_u32(&setting.default)?;
+            if !items.iter().any(|item| item.value == default) {
+                return Err(format!(
+                    "Default value for setting {} is not in its item list",
+                    setting.id
+                ));
+            }
+            let address = parse_u32(&setting.address)?;
+            if address & 0x3 != 0 {
+                return Err(format!(
+                    "Address for setting {} must be 32-bit aligned, got {address:#010x}",
+                    setting.id
+                ));
+            }
+            // The handheld FPGA framework reserves the entire 0xFxxx_xxxx
+            // range. Core-provided metadata must never be able to write to
+            // framework control, overlay, or framebuffer registers.
+            if address >= 0xF000_0000 {
+                return Err(format!(
+                    "Address for setting {} is in the reserved FPGA framework range: {address:#010x}",
+                    setting.id
+                ));
+            }
+            Ok(CoreSetting {
+                id: setting.id,
+                label: setting.label,
+                address,
+                items,
+                default,
+            })
+        })
+        .collect()
+}
+
+fn parse_u32(value: &str) -> Result<u32, String> {
+    let (digits, radix) = value
+        .strip_prefix("0x")
+        .or_else(|| value.strip_prefix("0X"))
+        .map_or((value, 10), |digits| (digits, 16));
+    u32::from_str_radix(digits, radix)
+        .map_err(|_| format!("Invalid 32-bit setting value '{value}'"))
 }
 
 /// Get a list of all available cores.
@@ -170,10 +287,12 @@ pub fn get_core(id: &str) -> Result<CoreInfo, String> {
     core_dir.push(id);
 
     // Read core.json
-    let file = File::open(&core_dir.join("core.json")).map_err(|_| "Failed to open core.json")?;
+    let file = File::open(core_dir.join("core.json")).map_err(|_| "Failed to open core.json")?;
     let reader = BufReader::with_capacity(256, file);
     let json_core: JsonCoreInfo =
         serde_json::from_reader(reader).map_err(|e| format!("Failed to parse core.json: {e}"))?;
+
+    let settings = load_settings_metadata(&core_dir)?;
 
     // Find the right bitstream (TODO: use a visitor that extracts the right one).
     let bitstream = json_core
@@ -193,8 +312,23 @@ pub fn get_core(id: &str) -> Result<CoreInfo, String> {
         name: json_core.metadata.name,
         author: json_core.metadata.author,
         files: ArrayVec::new(), // TODO
+        settings,
         bitstream: core_dir.join(bitstream),
     })
+}
+
+pub fn list_configurable_cores() -> Vec<CoreInfo> {
+    list_cores()
+        .into_iter()
+        .filter_map(|entry| match get_core(entry.id.as_str()) {
+            Ok(core) if !core.settings.is_empty() => Some(core),
+            Ok(_) => None,
+            Err(e) => {
+                log::warn!("Failed to load settings for core '{}': {e}", entry.id);
+                None
+            }
+        })
+        .collect()
 }
 
 fn get_device_target() -> &'static str {

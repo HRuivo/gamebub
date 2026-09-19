@@ -166,3 +166,27 @@ Choose checks proportional to the change:
 5. Report exactly what ran, what could not run, and whether testing was compile
    only or performed on physical hardware.
 
+## Mandatory Post-Change Safety Pass
+
+After every implementation, run the non-flashing safety pass and include its
+result in the final response:
+
+```sh
+python3 post_change_check.py --revision rev4
+```
+
+Replace `rev4` with the target board revision. Repeat `--revision` for every
+affected revision. Use `--no-build` only when the toolchain is unavailable, and
+state that compilation was not checked. The pass checks changed-line hygiene,
+formats changed Rust files, compiles selected revisions, validates partition
+layout changes, and highlights hardware-sensitive edits for manual review.
+
+`REVIEW REQUIRED` is not a failure, but it must be resolved before flashing:
+inspect every reported pin, power, clock, partition, FPGA/register, unsafe, or
+destructive-operation change against the schematic and matching protocol
+source. `FAIL` means the implementation is not ready. Do not weaken or bypass a
+check merely to produce a passing report.
+
+The safety pass never flashes, erases, resets, or communicates with hardware.
+Only flash when the user explicitly requests it. Automated checks cannot prove
+electrical safety; follow `HARDWARE_SAFETY.md` before physical testing.
