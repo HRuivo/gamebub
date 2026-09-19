@@ -156,9 +156,9 @@ affected revisions. Never silently use rev4 behavior as a universal default.
 Choose checks proportional to the change:
 
 1. Run `cargo fmt --check` for Rust changes.
-2. Run `cargo check --features <revision>` (or a release build) for every
-   affected board revision. Cross-compilation may require the developer's
-   installed esp-rs/ESP-IDF environment and network-populated dependency cache.
+2. Run `cargo check --features rev4` (or a rev4 release build). Rev4 is the
+   active development target; do not spend verification time compiling rev1,
+   rev2, or rev3 unless the user explicitly requests it.
 3. For Slint changes, a firmware build is the syntax/type check because the UI
    is compiled by `build.rs`.
 4. For packaging changes, use a disposable output path and verify partition
@@ -175,11 +175,12 @@ result in the final response:
 python3 post_change_check.py --revision rev4
 ```
 
-Replace `rev4` with the target board revision. Repeat `--revision` for every
-affected revision. Use `--no-build` only when the toolchain is unavailable, and
-state that compilation was not checked. The pass checks changed-line hygiene,
-formats changed Rust files, compiles selected revisions, validates partition
-layout changes, and highlights hardware-sensitive edits for manual review.
+Rev4 is the only required build target. Do not add rev1, rev2, or rev3 checks
+unless the user explicitly requests them. Use `--no-build` only when the
+toolchain is unavailable, and state that compilation was not checked. The pass
+checks changed-line hygiene, formats changed Rust files, compiles rev4,
+validates partition layout changes, and highlights hardware-sensitive edits for
+manual review.
 
 `REVIEW REQUIRED` is not a failure, but it must be resolved before flashing:
 inspect every reported pin, power, clock, partition, FPGA/register, unsafe, or

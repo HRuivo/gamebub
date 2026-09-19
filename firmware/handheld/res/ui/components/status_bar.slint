@@ -1,5 +1,47 @@
-import { Backend } from "../common.slint";
-import { Icons } from "../icons.slint";
+import { Backend, Palette } from "../common.slint";
+
+component BatteryIcon inherits Rectangle {
+    in property <int> level;
+    in property <bool> charging;
+
+    width: 20px;
+    height: 10px;
+    background: transparent;
+
+    Rectangle {
+        x: 0;
+        y: 1px;
+        width: parent.width - 3px;
+        height: parent.height - 2px;
+        background: transparent;
+        border-width: 1px;
+        border-color: Palette.text-on-dark;
+
+        Rectangle {
+            x: 2px;
+            y: 2px;
+            width: max(0px, (parent.width - 4px) * clamp(root.level, 0, 100) / 100);
+            height: parent.height - 4px;
+            background: root.level <= 15 ? Palette.danger : root.charging ? Palette.accent : Palette.text-on-dark;
+        }
+    }
+
+    Rectangle {
+        x: parent.width - 3px;
+        y: 3px;
+        width: 3px;
+        height: 4px;
+        background: Palette.text-on-dark;
+    }
+
+    if charging: Text {
+        text: "+";
+        x: 5px;
+        y: -2px;
+        color: Palette.header;
+        font-weight: 800;
+    }
+}
 
 export component StatusBar inherits Rectangle {
     in property <string> title;
@@ -7,8 +49,8 @@ export component StatusBar inherits Rectangle {
     x: 0;
     y: 0;
     width: 100%;
-    height: 16px;
-    background: #ccc;
+    height: 18px;
+    background: Palette.header;
 
     HorizontalLayout {
         spacing: 4px;
@@ -19,13 +61,29 @@ export component StatusBar inherits Rectangle {
         // Title text
         Text {
             text: root.title;
+            color: Palette.text-on-dark;
+            font-weight: 800;
             horizontal-stretch: 1;
             vertical-alignment: center;
         }
 
-        // Battery text
+        Text {
+            text: Backend.system-time;
+            color: Palette.text-on-dark;
+            horizontal-stretch: 0;
+            vertical-alignment: center;
+        }
+
+        BatteryIcon {
+            level: Backend.battery-level;
+            charging: Backend.battery-charging;
+            horizontal-stretch: 0;
+            vertical-stretch: 0;
+        }
+
         Text {
             text: "\{Backend.battery-level}%";
+            color: Backend.battery-level <= 15 ? Palette.danger : Palette.text-on-dark;
             horizontal-stretch: 0;
             vertical-alignment: center;
         }

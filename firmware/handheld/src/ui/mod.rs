@@ -40,7 +40,11 @@ pub enum Message {
     /// TODO: combine this with InputState/Gamepad handling
     Button(ButtonMap),
     /// Battery status has changed.
-    BatteryStatus { level: f32 },
+    BatteryStatus {
+        level: f32,
+        charging: bool,
+        system_time: String,
+    },
     /// Redraw the entire screen (e.g. after a display change)
     Redraw,
     /// Go to the "Game" screen
@@ -294,8 +298,14 @@ impl UI {
                     self.window.dispatch_event(button_event.into());
                 }
             }
-            Message::BatteryStatus { level } => {
-                self.state.borrow_mut().update_battery_level(level);
+            Message::BatteryStatus {
+                level,
+                charging,
+                system_time,
+            } => {
+                self.state
+                    .borrow_mut()
+                    .update_status(level, charging, system_time);
             }
             Message::Redraw => {
                 log::info!("Refreshing screen");

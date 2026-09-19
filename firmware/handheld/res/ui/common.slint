@@ -29,7 +29,19 @@ export struct BatteryInfo {
     current: float,
 }
 
-export global Palette { }
+export global Palette {
+    out property <color> background: #e9edf2;
+    out property <color> surface: #f8fafc;
+    out property <color> surface-muted: #d9e0e7;
+    out property <color> header: #17212b;
+    out property <color> text: #17212b;
+    out property <color> text-on-dark: #f8fafc;
+    out property <color> text-muted: #65717e;
+    out property <color> accent: #18a7d1;
+    out property <color> accent-dark: #08799a;
+    out property <color> danger: #c73f45;
+    out property <color> disabled: #929ca5;
+}
 
 export global Global {
     // Window height
@@ -70,6 +82,8 @@ export global Backend {
     in property <int> brightness-increment: 5;
 
     in property <int> battery-level: 11;
+    in property <bool> battery-charging: false;
+    in property <string> system-time: "--:--";
     in property <int> ui-fps: 0;
 
     in property <string> error-text: "";

@@ -1,147 +1,119 @@
-import { Global, ScreenId, Backend } from "../common.slint";
+import { Global, Palette, ScreenId, Backend } from "../common.slint";
 import { ScreenBase } from "../components/screen.slint";
-import { Button } from "../components/button.slint";
+import { ControlHint } from "../components/control_hint.slint";
+import { HomeAction, HomeTile } from "../components/home_tile.slint";
 
-enum ButtonId {
-    Cart,
+enum HomeFocus {
+    Cartridge,
     Cores,
-    Settings,
     Tools,
+    Settings,
 }
 
 global MainMenu {
-    in-out property <ButtonId> last-focus: Cart;
+    in-out property <HomeFocus> last-focus: Cartridge;
 }
 
 export component MainMenuScreen inherits ScreenBase {
-
+    title: "Home";
     forward-focus: i-focus-scope;
+
     i-focus-scope := FocusScope {
         focus-changed-event => {
-            if (self.has-focus) {
-                if (MainMenu.last-focus == ButtonId.Cart) {
-                    btn-cart.focus();
-                } else if (MainMenu.last-focus == ButtonId.Cores) {
-                    btn-cores.focus();
-                } else if (MainMenu.last-focus == ButtonId.Settings) {
-                    btn-settings.focus();
-                } else if (MainMenu.last-focus == ButtonId.Tools) {
-                    btn-tools.focus();
+            if self.has-focus {
+                if MainMenu.last-focus == HomeFocus.Cartridge {
+                    tile-cartridge.focus();
+                } else if MainMenu.last-focus == HomeFocus.Cores {
+                    if Backend.sdcard-mounted {
+                        tile-cores.focus();
+                    } else {
+                        MainMenu.last-focus = HomeFocus.Cartridge;
+                        tile-cartridge.focus();
+                    }
+                } else if MainMenu.last-focus == HomeFocus.Tools {
+                    action-tools.focus();
+                } else {
+                    action-settings.focus();
                 }
             }
-        }
-
-        i-logo := Image {
-            source: @image-url("../../logo.png");
-            y: ((50% * parent.height) - self.height) / 2;
-            height: 12px * (Global.window-height / 80px);
-            image-rendering: pixelated;
-            visible: !Global.ui-transparent;
-
-            init => {
-                debug("logo y:", self.absolute-position.y);
-            }
-        }
-
-        Text {
-            text: "™";
-            x: i-logo.x + i-logo.width + 4px;
-            y: i-logo.y;
         }
 
         VerticalLayout {
-            y: 50% * parent.height;
-            height: 50%;
-            padding: 8px;
-            spacing: 4px;
+            padding: 3px;
+            spacing: 3px;
+
+            Text {
+                text: "Choose what to play";
+                color: Palette.text;
+                font-weight: 800;
+                horizontal-alignment: center;
+            }
 
             HorizontalLayout {
-                spacing: 4px;
+                spacing: 5px;
+                vertical-stretch: 1;
 
-                btn-cart := Button {
-                    width: (parent.width - 4px) / 2;
-                    height: 25% * root.height;
-                    text: "Run Cartridge";
+                tile-cartridge := HomeTile {
+                    width: (parent.width - 5px) / 2;
+                    title: "Cartridge";
+                    icon-text: "GAME";
+                    detail: "Play inserted game";
+                    on-focused => { MainMenu.last-focus = HomeFocus.Cartridge; }
                     on-right => {
-                        if Backend.sdcard-mounted {
-                            btn-cores.focus();
-                        }
+                        if Backend.sdcard-mounted { tile-cores.focus(); }
                         accept
                     }
-                    on-down => {
-                        btn-settings.focus();
-                        MainMenu.last-focus = ButtonId.Cart;
-                        accept
-                    }
-                    on-pressed => {
-                        MainMenu.last-focus = ButtonId.Cart;
-                        Backend.main-menu-run-cartridge();
-                    }
+                    on-down => { action-tools.focus(); accept }
+                    on-pressed => { Backend.main-menu-run-cartridge(); }
                 }
 
-                btn-cores := Button {
-                    width: (parent.width - 4px) / 2;
-                    height: 25% * root.height;
-                    text: Backend.sdcard-mounted ? "Cores" : "No microSD card";
+                tile-cores := HomeTile {
+                    width: (parent.width - 5px) / 2;
+                    title: Backend.sdcard-mounted ? "Cores" : "No microSD";
+                    icon-text: "FPGA";
+                    detail: Backend.sdcard-mounted ? "Browse installed cores" : "Insert a microSD card";
                     disabled: !Backend.sdcard-mounted;
-                    on-left => {
-                        btn-cart.focus();
-                        accept
-                    }
-                    on-down => {
-                        btn-tools.focus();
-                        MainMenu.last-focus = ButtonId.Cores;
-                        accept
-                    }
-                    on-pressed => {
-                        MainMenu.last-focus = ButtonId.Cores;
-                        Global.set-screen(ScreenId.Cores);
-                    }
+                    on-focused => { MainMenu.last-focus = HomeFocus.Cores; }
+                    on-left => { tile-cartridge.focus(); accept }
+                    on-down => { action-settings.focus(); accept }
+                    on-pressed => { Global.set-screen(ScreenId.Cores); }
                 }
             }
 
             HorizontalLayout {
-                spacing: 4px;
+                spacing: 5px;
 
-                btn-settings := Button {
-                    text: "Settings";
-                    width: (parent.width - 4px) / 2;
-                    height: 15% * root.height;
-                    on-up => {
-                        btn-cart.focus();
-                        MainMenu.last-focus = ButtonId.Settings;
-                        accept
-                    }
-                    on-right => {
-                        btn-tools.focus();
-                        accept
-                    }
-                    on-pressed => {
-                        MainMenu.last-focus = ButtonId.Settings;
-                        Global.set-screen(ScreenId.Settings);
-                    }
+                Rectangle { horizontal-stretch: 1; background: transparent; }
+
+                action-tools := HomeAction {
+                    text: "TOOLS";
+                    on-focused => { MainMenu.last-focus = HomeFocus.Tools; }
+                    on-up => { tile-cartridge.focus(); accept }
+                    on-right => { action-settings.focus(); accept }
+                    on-pressed => { Global.set-screen(ScreenId.Tools); }
                 }
 
-                btn-tools := Button {
-                    text: "Tools";
-                    width: (parent.width - 4px) / 2;
-                    height: 15% * root.height;
+                action-settings := HomeAction {
+                    text: "SETTINGS";
+                    on-focused => { MainMenu.last-focus = HomeFocus.Settings; }
                     on-up => {
-                        if Backend.sdcard-mounted {
-                            btn-cores.focus();
-                        }
-                        MainMenu.last-focus = ButtonId.Tools;
+                        if Backend.sdcard-mounted { tile-cores.focus(); } else { tile-cartridge.focus(); }
                         accept
                     }
-                    on-left => {
-                        btn-settings.focus();
-                        accept
-                    }
-                    on-pressed => {
-                        MainMenu.last-focus = ButtonId.Tools;
-                        Global.set-screen(ScreenId.Tools);
-                    }
+                    on-left => { action-tools.focus(); accept }
+                    on-pressed => { Global.set-screen(ScreenId.Settings); }
                 }
+            }
+
+            HorizontalLayout {
+                alignment: space-between;
+
+                Text {
+                    text: Backend.sdcard-mounted ? "microSD ready" : "microSD unavailable";
+                    color: Backend.sdcard-mounted ? Palette.accent-dark : Palette.danger;
+                }
+
+                ControlHint { label: "Select"; button: "a"; }
             }
         }
     }

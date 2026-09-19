@@ -49,6 +49,11 @@ impl PowerManager {
 
         ui::send(ui::Message::BatteryStatus {
             level: battery_level.unwrap_or(0.),
+            charging: device.get_battery_is_charging(),
+            system_time: {
+                let datetime = time::OffsetDateTime::now_utc();
+                format!("{:02}:{:02}", datetime.hour(), datetime.minute())
+            },
         });
     }
 
