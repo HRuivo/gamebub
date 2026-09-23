@@ -1,0 +1,15 @@
+{
+    "lsp": {
+        "rust-analyzer": {
+            "binary": {
+                "path": "/home/hurus/.rustup/toolchains/1.93.0-x86_64-unknown-linux-gnu/bin/rust-analyzer",
+            },
+            "initialization_options": {
+                "linkedProjects": ["./firmware/handheld/Cargo.toml"],
+                "cargo": {
+                    "features": ["rev4"],
+                },
+            },
+        },
+    },
+}

@@ -47,13 +47,11 @@ impl UiState {
         state
     }
 
-    pub fn update_status(&mut self, level: f32, charging: bool, system_time: String) {
+    pub fn update_battery_level(&mut self, level: f32) {
         let level = level.round() as i32;
         let root = self.root.unwrap();
         let backend = root.global::<Backend>();
         backend.set_battery_level(level);
-        backend.set_battery_charging(charging);
-        backend.set_system_time(system_time.into());
     }
 
     fn setup(&mut self, state: Rc<RefCell<UiState>>, device: &mut Device) {
@@ -61,13 +59,7 @@ impl UiState {
         let backend = root.global::<Backend>();
 
         let battery_level = device.fuel_gauge.get_battery_level().unwrap_or(0.0);
-        let battery_charging = device.get_battery_is_charging();
-        let datetime = time::OffsetDateTime::now_utc();
-        self.update_status(
-            battery_level,
-            battery_charging,
-            format!("{:02}:{:02}", datetime.hour(), datetime.minute()),
-        );
+        self.update_battery_level(battery_level);
         backend.set_volume_level(((kvs::keys::VOLUME.get().unwrap() as i32) * 100) / 255);
         backend.set_brightness_level((kvs::keys::BRIGHTNESS.get().unwrap() * 100.0) as i32);
         backend.set_hardware_version(crate::hwinfo::get_hardware_version().to_string().into());
