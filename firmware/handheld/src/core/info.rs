@@ -9,7 +9,6 @@ use std::{
 use crate::device::drivers::fpga;
 
 pub const DIR_CORES: &str = "/sdcard/cores/";
-//pub const DIR_CORES: &str = "/dev/null";
 
 #[derive(Deserialize)]
 pub struct CoreListEntry {
@@ -65,6 +64,68 @@ struct JsonCoreSettingItem {
     value: String,
 }
 
+#[derive(Deserialize)]
+struct JsonCoreFiles {
+    files: Vec<JsonCoreFile>,
+}
+
+#[derive(Deserialize)]
+struct JsonCoreFile {
+    id: u16,
+    label: ArrayString<16>,
+    #[serde(default)]
+    filename: Option<ArrayString<32>>,
+    #[serde(default)]
+    extensions: Vec<ArrayString<8>>,
+    #[serde(default = "default_true")]
+    optional: bool,
+    #[serde(default)]
+    read_only: bool,
+    #[serde(default)]
+    user_selected: bool,
+    #[serde(default)]
+    dependent_on_0: bool,
+    #[serde(default)]
+    initialize: bool,
+    address: JsonU32,
+    #[serde(default)]
+    max_size: JsonU32,
+    #[serde(default)]
+    exact_size: JsonU32,
+    #[serde(default = "default_max_transfer_speed")]
+    max_transfer_speed: u32,
+}
+
+#[derive(Deserialize)]
+#[serde(untagged)]
+enum JsonU32 {
+    Number(u32),
+    String(String),
+}
+
+impl Default for JsonU32 {
+    fn default() -> Self {
+        Self::Number(0)
+    }
+}
+
+impl JsonU32 {
+    fn parse(self) -> Result<u32, String> {
+        match self {
+            Self::Number(value) => Ok(value),
+            Self::String(value) => parse_u32(&value),
+        }
+    }
+}
+
+const fn default_true() -> bool {
+    true
+}
+
+const fn default_max_transfer_speed() -> u32 {
+    5_000
+}
+
 #[allow(unused)]
 pub struct CoreFile {
     pub id: u16,
@@ -112,6 +173,115 @@ impl CoreInfo {
         p.add_extension("json");
         p
     }
+}
+
+fn load_files_metadata(core_dir: &Path) -> Result<ArrayVec<CoreFile, 8>, String> {
+    let file = match File::open(core_dir.join("files.json")) {
+        Ok(file) => file,
+        Err(e) if e.kind() == ErrorKind::NotFound => return Ok(ArrayVec::new()),
+        Err(e) => return Err(format!("Failed to open files.json: {e}")),
+    };
+    let reader = BufReader::with_capacity(256, file);
+    let json: JsonCoreFiles =
+        serde_json::from_reader(reader).map_err(|e| format!("Failed to parse files.json: {e}"))?;
+
+    if json.files.len() > 8 {
+        return Err(format!(
+            "files.json contains {} files; at most 8 are supported",
+            json.files.len()
+        ));
+    }
+
+    let mut files = ArrayVec::new();
+    for file in json.files {
+        if files
+            .iter()
+            .any(|existing: &CoreFile| existing.id == file.id)
+        {
+            return Err(format!("Duplicate file ID {}", file.id));
+        }
+        if file.extensions.len() > 4 {
+            return Err(format!(
+                "File {} contains {} extensions; at most 4 are supported",
+                file.id,
+                file.extensions.len()
+            ));
+        }
+        if file.user_selected && file.extensions.is_empty() {
+            return Err(format!(
+                "User-selected file {} must define at least one extension",
+                file.id
+            ));
+        }
+        if file.dependent_on_0 && file.extensions.len() != 1 {
+            return Err(format!(
+                "File {} depends on file 0 and must define exactly one extension",
+                file.id
+            ));
+        }
+        if file.id == 0 && file.dependent_on_0 {
+            return Err("File 0 cannot depend on itself".to_string());
+        }
+        if file.max_transfer_speed == 0 {
+            return Err(format!(
+                "File {} max_transfer_speed must be greater than zero",
+                file.id
+            ));
+        }
+
+        let address = file
+            .address
+            .parse()
+            .map_err(|e| format!("Invalid address for file {}: {e}", file.id))?;
+        let max_size = file
+            .max_size
+            .parse()
+            .map_err(|e| format!("Invalid max_size for file {}: {e}", file.id))?;
+        let exact_size = file
+            .exact_size
+            .parse()
+            .map_err(|e| format!("Invalid exact_size for file {}: {e}", file.id))?;
+        if max_size != 0 && exact_size > max_size {
+            return Err(format!(
+                "File {} exact_size ({exact_size}) exceeds max_size ({max_size})",
+                file.id
+            ));
+        }
+        if address >= 0xF000_0000 {
+            return Err(format!(
+                "Address for file {} is in the reserved FPGA framework range: {address:#010x}",
+                file.id
+            ));
+        }
+        let transfer_size = exact_size.max(max_size);
+        if transfer_size != 0 && address.checked_add(transfer_size - 1).is_none() {
+            return Err(format!("Address range for file {} overflows", file.id));
+        }
+
+        files.push(CoreFile {
+            id: file.id,
+            label: file.label,
+            filename: file.filename,
+            extensions: file.extensions.into_iter().collect(),
+            optional: file.optional,
+            read_only: file.read_only,
+            user_selected: file.user_selected,
+            dependent_on_0: file.dependent_on_0,
+            initialize: file.initialize,
+            address,
+            max_size,
+            exact_size,
+            max_transfer_speed: file.max_transfer_speed,
+            // The generic host-memory path currently uses 32-bit transfers.
+            transfer_word_size: fpga::FpgaSpiWordSize::Bits32,
+        });
+    }
+
+    if files.iter().any(|file| file.dependent_on_0) && !files.iter().any(|file| file.id == 0) {
+        return Err("A file depends on file 0, but file 0 is not defined".to_string());
+    }
+
+    Ok(files)
 }
 
 fn load_settings_metadata(core_dir: &Path) -> Result<Vec<CoreSetting>, String> {
@@ -307,11 +477,13 @@ pub fn get_core(id: &str) -> Result<CoreInfo, String> {
         })
         .ok_or("No compatible bitstream")?;
 
+    let files = load_files_metadata(&core_dir)?;
+
     Ok(CoreInfo {
         id: json_core.metadata.id,
         name: json_core.metadata.name,
         author: json_core.metadata.author,
-        files: ArrayVec::new(), // TODO
+        files,
         settings,
         bitstream: core_dir.join(bitstream),
     })
